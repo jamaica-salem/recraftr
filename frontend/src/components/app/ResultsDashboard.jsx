@@ -296,7 +296,6 @@ export default function ResultsDashboard({
                     Predicted ATS: <span className="text-[#4ADE80] font-medium">{optimization.predicted_ats_score ?? "—"}</span>
                   </div>
                 </div>
-                <div className="flex gap-2">
                 <div className="flex gap-2 items-center">
                   <div className="flex bg-[#0A0A0A] border border-[#262626] rounded-full p-1 mr-2">
                     <button
