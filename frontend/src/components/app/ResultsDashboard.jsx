@@ -5,8 +5,9 @@ import { Badge } from "@/components/ui/badge";
 import { RESUME } from "@/constants/testIds";
 import { API, useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { Copy, Download, Sparkles, CheckCircle2, Circle, AlertCircle, Mail } from "lucide-react";
+import { Copy, Download, Sparkles, CheckCircle2, Circle, AlertCircle, Mail, Code, Sparkle } from "lucide-react";
 import ExportModal from "@/components/ExportModal";
+import InteractiveBulletEditor from "@/components/app/InteractiveBulletEditor";
 
 function scoreColor(score) {
   if (score >= 80) return { hex: "#16A34A", label: "Strong", ring: "text-[#22C55E]" };
@@ -109,6 +110,16 @@ export default function ResultsDashboard({
   const { token, user } = useAuth();
   const [tab, setTab] = useState("overview");
   const [exportModal, setExportModal] = useState({ open: false, type: "resume" });
+  const [editorMode, setEditorMode] = useState("interactive");
+  const [currentResumeText, setCurrentResumeText] = useState("");
+
+  React.useEffect(() => {
+    if (optimization?.optimized_resume) {
+      setCurrentResumeText(optimization.optimized_resume);
+    }
+  }, [optimization?.optimized_resume]);
+
+  const activeResumeText = currentResumeText || optimization?.optimized_resume || "";
 
   const missing = analysis?.missing_skills || {};
   const gap = analysis?.gap_analysis || [];
@@ -286,21 +297,59 @@ export default function ResultsDashboard({
                   </div>
                 </div>
                 <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  <div className="flex bg-[#0A0A0A] border border-[#262626] rounded-full p-1 mr-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditorMode("interactive")}
+                      className={`px-3 py-1 text-xs rounded-full flex items-center gap-1.5 transition-all ${
+                        editorMode === "interactive"
+                          ? "bg-[#2563EB] text-white font-medium shadow"
+                          : "text-neutral-400 hover:text-white"
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+                      <span>Interactive AI Editor</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditorMode("raw")}
+                      className={`px-3 py-1 text-xs rounded-full flex items-center gap-1.5 transition-all ${
+                        editorMode === "raw"
+                          ? "bg-[#2563EB] text-white font-medium shadow"
+                          : "text-neutral-400 hover:text-white"
+                      }`}
+                    >
+                      <Code className="w-3.5 h-3.5" />
+                      <span>Plain Text</span>
+                    </button>
+                  </div>
+
                   <Button data-testid={RESUME.copyResumeBtn} variant="outline"
-                    onClick={() => copyText(optimization.optimized_resume, "Optimized resume")}
+                    onClick={() => copyText(activeResumeText, "Optimized resume")}
                     className="bg-transparent border-[#262626] text-neutral-200 hover:bg-[#1F1F1F] hover:text-white rounded-full">
                     <Copy className="w-4 h-4 mr-2" /> Copy
                   </Button>
                   <Button data-testid={RESUME.downloadPdfBtn} onClick={downloadResumePdf}
                     className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-full">
-                    <Download className="w-4 h-4 mr-2" /> Download PDF
+                    <Download className="w-4 h-4 mr-2" /> Export
                   </Button>
                 </div>
               </div>
-              <pre data-testid={RESUME.optimizedResume}
-                className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-neutral-200 bg-[#0A0A0A] border border-[#1F1F1F] rounded-md p-6 max-h-[70vh] overflow-auto">
-                {optimization.optimized_resume}
-              </pre>
+
+              {editorMode === "interactive" ? (
+                <InteractiveBulletEditor
+                  resumeText={activeResumeText}
+                  onUpdateResumeText={setCurrentResumeText}
+                  jobDescription={analysis?.job_description || ""}
+                  authHeaders={{ Authorization: `Bearer ${token}` }}
+                />
+              ) : (
+                <pre data-testid={RESUME.optimizedResume}
+                  className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-neutral-200 bg-[#0A0A0A] border border-[#1F1F1F] rounded-md p-6 max-h-[70vh] overflow-auto">
+                  {activeResumeText}
+                </pre>
+              )}
               {optimization.changes_summary?.length > 0 && (
                 <div className="mt-6">
                   <div className="label-caps mb-3">Changes summary</div>
@@ -394,7 +443,7 @@ export default function ResultsDashboard({
         onClose={() => setExportModal({ open: false, type: "resume" })}
         title={exportModal.type === "cover_letter" ? "Export Cover Letter" : "Export Optimized Resume"}
         downloadType={exportModal.type}
-        resumeText={optimization?.optimized_resume || ""}
+        resumeText={activeResumeText}
         coverLetterText={coverLetter || ""}
         candidateName={user?.name || ""}
         jobTitle={analysis?.job_title || ""}
