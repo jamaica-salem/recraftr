@@ -2,7 +2,7 @@ import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
-import { History as HistoryIcon, LogOut, Layers, Sparkles } from "lucide-react";
+import { History as HistoryIcon, LogOut, Layers, Sparkles, Kanban } from "lucide-react";
 import { RESUME } from "@/constants/testIds";
 
 export default function AppHeader() {
@@ -31,6 +31,14 @@ export default function AppHeader() {
         </Link>
 
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            className={`hover:bg-[#1F1F1F] ${loc.pathname === "/tracker" ? "text-white bg-[#1F1F1F]" : "text-neutral-300 hover:text-white"}`}
+            onClick={() => nav("/tracker")}
+          >
+            <Kanban className="w-4 h-4 mr-2 text-indigo-400" />
+            Tracker
+          </Button>
           <Button
             data-testid={RESUME.headerCompare}
             variant="ghost"
