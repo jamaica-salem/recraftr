@@ -512,6 +512,97 @@ async def rewrite_bullet_endpoint(payload: RewriteBulletRequest, user_id: str = 
         raise HTTPException(status_code=500, detail=f"Bullet rewrite failed: {e}")
 
 
+# ---------------- Job Tracker / Applications ----------------
+class ApplicationCreate(BaseModel):
+    job_title: str
+    company_name: Optional[str] = "Target Company"
+    location: Optional[str] = ""
+    status: Optional[str] = "applied"
+    ats_score: Optional[int] = None
+    job_description: Optional[str] = ""
+    optimized_resume: Optional[str] = ""
+    cover_letter: Optional[str] = ""
+    notes: Optional[str] = ""
+    resume_filename: Optional[str] = ""
+
+
+class ApplicationUpdate(BaseModel):
+    job_title: Optional[str] = None
+    company_name: Optional[str] = None
+    location: Optional[str] = None
+    status: Optional[str] = None
+    ats_score: Optional[int] = None
+    notes: Optional[str] = None
+    optimized_resume: Optional[str] = None
+    cover_letter: Optional[str] = None
+
+
+@api.get("/applications")
+async def list_applications(user_id: str = Depends(get_current_user)):
+    rows = await db.applications.find(
+        {"user_id": user_id}, {"_id": 0}
+    ).sort("updated_at", -1).to_list(200)
+    return {"items": rows}
+
+
+@api.post("/applications")
+async def create_application(payload: ApplicationCreate, user_id: str = Depends(get_current_user)):
+    if not payload.job_title or len(payload.job_title.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Job title is required")
+    app_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": app_id,
+        "user_id": user_id,
+        "job_title": payload.job_title.strip(),
+        "company_name": (payload.company_name or "Target Company").strip(),
+        "location": (payload.location or "").strip(),
+        "status": (payload.status or "applied").lower(),
+        "ats_score": payload.ats_score,
+        "job_description": payload.job_description or "",
+        "optimized_resume": payload.optimized_resume or "",
+        "cover_letter": payload.cover_letter or "",
+        "notes": payload.notes or "",
+        "resume_filename": payload.resume_filename or "",
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.applications.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/applications/{app_id}")
+async def update_application(app_id: str, payload: ApplicationUpdate, user_id: str = Depends(get_current_user)):
+    existing = await db.applications.find_one({"id": app_id, "user_id": user_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    updates = {}
+    if payload.job_title is not None: updates["job_title"] = payload.job_title.strip()
+    if payload.company_name is not None: updates["company_name"] = payload.company_name.strip()
+    if payload.location is not None: updates["location"] = payload.location.strip()
+    if payload.status is not None: updates["status"] = payload.status.lower()
+    if payload.ats_score is not None: updates["ats_score"] = payload.ats_score
+    if payload.notes is not None: updates["notes"] = payload.notes
+    if payload.optimized_resume is not None: updates["optimized_resume"] = payload.optimized_resume
+    if payload.cover_letter is not None: updates["cover_letter"] = payload.cover_letter
+
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    await db.applications.update_one({"id": app_id, "user_id": user_id}, {"$set": updates})
+    updated_doc = await db.applications.find_one({"id": app_id, "user_id": user_id}, {"_id": 0})
+    return updated_doc
+
+
+@api.delete("/applications/{app_id}")
+async def delete_application(app_id: str, user_id: str = Depends(get_current_user)):
+    res = await db.applications.delete_one({"id": app_id, "user_id": user_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"ok": True}
+
+
 # ---------------- Health ----------------
 @api.get("/")
 async def root():
