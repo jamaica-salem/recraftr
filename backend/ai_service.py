@@ -156,6 +156,33 @@ Return ONLY:
 }}"""
 
 
+REWRITE_BULLET_SYSTEM = """You are an expert resume editor and career strategist.
+Your job is to rewrite a single bullet point according to a specific target instruction.
+Always maintain factual context, avoid buzzwords, and return a single valid JSON object containing the key 'rewritten_bullet'. No prose or markdown wrappers."""
+
+REWRITE_BULLET_PROMPT = """Rewrite the bullet point below following this specific instruction.
+
+CURRENT BULLET:
+{bullet_text}
+
+TARGET INSTRUCTION:
+{instruction}
+
+JOB DESCRIPTION CONTEXT (optional reference):
+{job_description}
+
+Guidelines:
+- If instruction is 'metrics': add plausible, realistic metric estimations (percentages, scale, dollar amounts, performance gains).
+- If instruction is 'shorten': rewrite as a punchy, single-line action bullet under 16 words.
+- If instruction is 'leadership': emphasize ownership, cross-functional collaboration, mentorship, or driving initiatives.
+- If instruction mentions a technology or keyword (e.g. 'inject Docker'): weave that keyword naturally into the bullet.
+- Do NOT invent fake companies or roles.
+- Return ONLY a JSON object:
+{{
+  "rewritten_bullet": "<the new bullet point string starting with an action verb, no leading dash>"
+}}"""
+
+
 # ---------------- Primary Provider: Gemini ----------------
 async def _stream_gemini(system: str, prompt: str, model_name: str) -> AsyncGenerator[str, None]:
     key = os.environ.get('GEMINI_API_KEY') or GEMINI_API_KEY
@@ -366,3 +393,42 @@ async def cover_letter_stream(resume_text: str, job_title: str, job_description:
     prompt = COVER_PROMPT.format(job_title=job_title, job_description=job_description, resume_text=resume_text[:12000])
     async for ev in _run_stream(COVER_SYSTEM, prompt, model_key):
         yield ev
+
+
+async def rewrite_bullet(
+    bullet_text: str,
+    instruction: str,
+    job_description: str = "",
+    model_key: str = DEFAULT_MODEL
+) -> Dict[str, Any]:
+    prompt = REWRITE_BULLET_PROMPT.format(
+        bullet_text=bullet_text.lstrip("-•* ").strip(),
+        instruction=instruction,
+        job_description=(job_description or "")[:4000] if job_description else "N/A"
+    )
+    async for ev in _run_stream(REWRITE_BULLET_SYSTEM, prompt, model_key):
+        if ev.get("type") == "result":
+            parsed = ev.get("parsed") or {}
+            res = (parsed.get("rewritten_bullet") or "").strip().lstrip("-•* ")
+            if res:
+                return {"rewritten_bullet": res}
+
+    # Deterministic local fallback if API unavailable
+    b = bullet_text.lstrip("-•* ").strip()
+    inst = instruction.lower()
+    if "metric" in inst:
+        res = f"{b}, resulting in a 35% performance gain and saving 12+ engineering hours weekly."
+    elif "shorten" in inst:
+        res = b.split(".")[0]
+        if len(res) > 90:
+            res = res[:85].rsplit(" ", 1)[0]
+    elif "leadership" in inst:
+        res = f"Spearheaded {b.lower() if b else 'initiatives'}, mentoring team members and driving project delivery."
+    elif "inject" in inst or "keyword" in inst:
+        kw = instruction.split(":")[-1].strip() if ":" in instruction else "modern tools"
+        res = f"{b} leveraging {kw} to streamline workflows."
+    else:
+        res = f"Optimized {b.lower() if b else 'processes'} to improve efficiency and output."
+
+    return {"rewritten_bullet": res}
+

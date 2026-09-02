@@ -25,7 +25,7 @@ from auth import (
 from resume_parser import parse_resume
 from ai_service import (
     analyze_resume, optimize_resume,
-    analyze_stream, optimize_stream, cover_letter_stream,
+    analyze_stream, optimize_stream, cover_letter_stream, rewrite_bullet,
     DEFAULT_MODEL,
 )
 from pdf_generator import build_pdf, build_cover_letter_pdf, build_html
@@ -487,6 +487,29 @@ async def cover_letter_pdf(payload: CoverLetterPdfRequest, user_id: str = Depend
         io.BytesIO(pdf_bytes), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{fname}.pdf"'},
     )
+
+
+# ---------------- Bullet Rewrite Endpoint ----------------
+class RewriteBulletRequest(BaseModel):
+    bullet_text: str
+    instruction: str
+    job_description: Optional[str] = ""
+    model: Optional[str] = DEFAULT_MODEL
+
+
+@api.post("/rewrite-bullet")
+async def rewrite_bullet_endpoint(payload: RewriteBulletRequest, user_id: str = Depends(get_current_user)):
+    if not payload.bullet_text or len(payload.bullet_text.strip()) < 5:
+        raise HTTPException(status_code=400, detail="Bullet text is empty or too short")
+    if not payload.instruction or len(payload.instruction.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Instruction is required")
+    try:
+        res = await rewrite_bullet(
+            payload.bullet_text, payload.instruction, payload.job_description or "", payload.model or DEFAULT_MODEL
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Bullet rewrite failed: {e}")
 
 
 # ---------------- Health ----------------
