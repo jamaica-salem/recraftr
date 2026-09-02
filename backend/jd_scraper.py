@@ -16,8 +16,7 @@ from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from ai_service import _new_chat, _extract_json, DEFAULT_MODEL
-from emergentintegrations.llm.chat import UserMessage
+from ai_service import _run_stream, DEFAULT_MODEL
 
 HEADERS = {
     "User-Agent": (
@@ -215,10 +214,11 @@ If this page is NOT a job posting, return {{"job_title":"","job_description":""}
 
 
 async def _from_llm(content: str, model_key: str = DEFAULT_MODEL) -> Dict[str, str]:
-    chat = _new_chat(LLM_SYSTEM, model_key)
     prompt = LLM_PROMPT.format(content=content[:14000])
-    resp = await chat.send_message(UserMessage(text=prompt))
-    parsed = _extract_json(resp if isinstance(resp, str) else str(resp))
+    parsed = {}
+    async for ev in _run_stream(LLM_SYSTEM, prompt, model_key):
+        if ev.get("type") == "result":
+            parsed = ev.get("parsed") or {}
     return {
         "job_title": (parsed.get("job_title") or "").strip(),
         "job_description": (parsed.get("job_description") or "").strip(),
