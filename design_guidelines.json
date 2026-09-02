@@ -1,0 +1,149 @@
+{
+  "theme": "dark",
+  "design_philosophy": "Swiss & High-Contrast Archetype (Dark Mode). Strict, minimal, modern SaaS design. Absolute focus on typography, solid colors, and optical balance. Zero gradients allowed.",
+  "typography": {
+    "headings": {
+      "font_family": "Outfit",
+      "weights": ["light", "regular", "medium", "semibold", "bold"],
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter leading-tight font-medium",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight leading-snug font-medium",
+      "h3": "text-xl sm:text-2xl tracking-tight leading-snug font-medium",
+      "h4": "text-lg sm:text-xl font-medium"
+    },
+    "body": {
+      "font_family": "IBM Plex Sans",
+      "sizes": {
+        "base": "text-base leading-relaxed text-neutral-300",
+        "small": "text-sm text-neutral-400",
+        "labels": "text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500"
+      }
+    },
+    "rules": [
+      "NEVER use Inter, Roboto, or Open Sans for headings. Space Grotesk is forbidden.",
+      "Always apply tracking-tight or tracking-tighter to headings.",
+      "Labels must be uppercase with wide tracking (tracking-[0.2em])."
+    ]
+  },
+  "colors": {
+    "rules": [
+      "DO NOT USE GRADIENTS ANYWHERE. Strictly use solid colors.",
+      "Never use pure black (#000000) or pure white (#FFFFFF). Use off-white for text and tinted obsidian for backgrounds.",
+      "Limit the use of the primary color only to main call-to-actions (CTAs) and active states."
+    ],
+    "palette": {
+      "background": "#0A0A0A",
+      "foreground": "#F5F5F5",
+      "surface": "#141414",
+      "surface_hover": "#1F1F1F",
+      "border": "#262626",
+      "primary": "#2563EB",
+      "primary_foreground": "#FFFFFF",
+      "secondary": "#262626",
+      "secondary_foreground": "#F5F5F5",
+      "muted": "#1F1F1F",
+      "muted_foreground": "#A3A3A3",
+      "status": {
+        "green": "#16A34A",
+        "yellow": "#D97706",
+        "red": "#DC2626"
+      }
+    }
+  },
+  "visual_enhancers": {
+    "shadows": [
+      "Use soft, ambient shadows. Example: shadow-[0_8px_30px_rgb(0,0,0,0.4)] for dropdowns and floating action bars.",
+      "Never use colored shadows or heavy drop shadows on text."
+    ],
+    "borders": [
+      "Use 1px solid borders with #262626 (border-neutral-800) for structural division.",
+      "Cardless or minimal cards: heavily rely on subtle borders rather than background color changes."
+    ],
+    "radii": [
+      "radius-sm: 2px (checkboxes, small tags)",
+      "radius-md: 4px (inputs, buttons)",
+      "radius-lg: 8px (cards, modals, panels)",
+      "Nested radii must follow: child radius = parent radius - padding."
+    ],
+    "surfaces": [
+      "Solid backgrounds only. For sticky headers or dropdowns over content, use solid #141414 with a 1px border. DO NOT use transparent or glassmorphism if it compromises readability over solid blocks."
+    ]
+  },
+  "layouts": {
+    "spacing": "Generous spacing. Use p-6, p-8, or p-12 inside cards. Avoid p-4 unless space is highly constrained.",
+    "page_structure": {
+      "header": "Sticky top, solid background (#0A0A0A), bottom border 1px solid #262626. Includes App Name 'ResumeMatch AI' and a subtle subtitle 'Optimize your resume for any job in seconds'.",
+      "main_grid": "grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 px-6 lg:px-12 py-8",
+      "action_bar": "Solid dark panel (#141414) fixed at the bottom or placed clearly below the 2-column grid, featuring the Primary 'Analyze Resume' button, Secondary 'Optimize Resume' button, and a modern switch/toggle for 'Aggressive Optimization'.",
+      "results_dashboard": "Wide, unified layout below the fold or on a new screen. Uses horizontal Shadcn Tabs for Overview, Gap Analysis, Missing Skills, Improvements, Optimized Resume, and Before vs After."
+    },
+    "alignment": [
+      "Mobile-first responsive grids.",
+      "Left-align dense text, paragraphs, labels, and lists.",
+      "Center-align the main empty state/loading state messages for dramatic focus."
+    ]
+  },
+  "components": {
+    "rules": [
+      "Use Shadcn UI for logic and accessibility, but override the default Tailwind styles to match the custom colors and radii.",
+      "Never use raw HTML <select> or <input type='date'>. Use Shadcn select and calendar components."
+    ],
+    "specific_components": {
+      "buttons": "Pill-shaped or slightly rounded (4px). Primary is solid #2563EB, secondary is solid #262626. Add a slight transform hover effect (-translate-y-[1px]).",
+      "inputs_and_textareas": "Solid dark background (#0A0A0A), 1px solid #262626, focus:border-[#2563EB]. Text color #F5F5F5.",
+      "file_upload_zone": "Dashed border (border-dashed border-2 border-neutral-700), bg-neutral-900/50 hover:bg-neutral-800 transition-colors. Center aligned content.",
+      "tabs": "Shadcn tabs. Remove generic gray backgrounds. Use a clean underline style or solid active pill for the active tab, and muted text for inactive.",
+      "tables": "For Gap Analysis. Border-collapse, left-aligned headers, 1px bottom border on rows. No alternating background colors.",
+      "badges_tags": "For Missing Skills. Solid backgrounds using status colors at 15% opacity with solid text color (e.g., bg-red-900/30 text-red-400) for High/Med/Optional grouping.",
+      "progress_charts": "For ATS score. Use solid stroke SVGs. Color coded (Green > 80, Yellow 60-80, Red < 60)."
+    }
+  },
+  "motion": {
+    "rules": [
+      "Minimalist animations. Use framer-motion for smooth entrance transitions.",
+      "List items (Missing skills, improvements) should stagger in.",
+      "Hover states must instantly provide feedback (transform or color shift).",
+      "DO NOT use 'transition: all'. Explicitly define properties (e.g., 'transition-colors duration-200').",
+      "Respect prefers-reduced-motion."
+    ],
+    "loading_states": "Typographic focus. 'Parsing resume...', 'Analyzing job match...', 'Optimizing resume...' fading in and out cleanly in the center of the screen with a solid color progress bar or spinner."
+  },
+  "media": {
+    "icons": "Use lucide-react (default) or @phosphor-icons/react. Keep stroke weights consistent (1.5px to 2px).",
+    "image_urls": {
+      "login_background": {
+        "url": "https://images.pexels.com/photos/30986854/pexels-photo-30986854.jpeg",
+        "description": "A sleek workspace featuring a wireless mouse and keyboard on a dark wooden desk, captured with natural lighting. Best used for the Login/Signup page split-screen background."
+      },
+      "empty_state_graphic": {
+        "url": "https://images.unsplash.com/photo-1696838163915-3649669f300f",
+        "description": "Abstract dark lines. Best used subtly in an empty state or loading overlay if a visual is absolutely required."
+      }
+    }
+  },
+  "accessibility": {
+    "contrast": "Ensure minimum 4.5:1 for normal text and 3:1 for large text. Hover states must be higher contrast.",
+    "focus": "All interactive elements must have a visible focus ring (focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background).",
+    "testing": "All interactive and key informational elements MUST include a 'data-testid' attribute (e.g., data-testid='upload-resume-dropzone')."
+  },
+  "instructions_to_main_agent": [
+    "Read and apply all custom utility classes or inline styles explicitly replacing defaults with the exact color hexes or Tailwind neutral scales mapped to them.",
+    "Prioritize Shadcn component generation (Tabs, Table, Progress, Switch, Button, Input) but strip away Vercel-like gloss/gradients.",
+    "Implement the Layout strictly: A sticky header, a 2-column input section (left upload, right job description), a fixed/distinct Action Bar, and a large Tabbed Results section below.",
+    "For the ATS Score, ensure the numeric value is large (e.g., text-6xl) and color-coded strictly using the solid status colors.",
+    "Use 'sonner' for all toast notifications."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates what users call the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy and subtle solid borders.",
+    "You MUST NOT apply universal transition (e.g., `transition: all`). Always add transitions for specific interactive elements.",
+    "You MUST NOT center align the app container, i.e., do not add `.App { text-align: center; }` in the CSS file. This disrupts the human natural reading flow of text.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons. Use real SVG icons.",
+    "Every interaction needs micro-animations - hover states, transitions, and entrance animations.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "All interactive and key informational elements MUST include a `data-testid` attribute to facilitate robust automated testing.",
+    "Use `sonner` for toasts. Sonner component is located in `/app/src/components/ui/sonner.tsx` or similar path depending on your setup."
+  ]
+}

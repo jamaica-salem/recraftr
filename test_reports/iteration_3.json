@@ -1,0 +1,57 @@
+{
+  "summary": "Iteration 3 verified. Backend: 35/35 pytest pass — all iter1/2 regressions green + 7 new tests: real Greenhouse scrape (Account Executive - Tech, 5161 chars) in 0.21s, 401 on unauth, 400 on malformed/non-job/dead-host URLs, and parallel /api/compare proven (single /analyze=10.24s, /compare x3 identical resumes=11.32s, ratio 1.10 — well under 1.6x threshold). Bounds still enforced (empty ids, >5 ids, <30 char JD all 400). Frontend: login + Dashboard JD-URL widget autofills real Greenhouse title + description; Compare page has JD-URL widget, search filter (case-insensitive substring, empty state), and show-all toggle collapses 16 versions to 7 unique (9 duplicates hidden) then expands to 16 when toggled — label 'Show all 16 versions (9 duplicate filenames hidden)' verbatim as spec'd. Skills loaded: ai-testing-core, ai-testing-llm.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/scrape-jd (Greenhouse adapter)", "issue": "Returned job_description leaks 88+ raw HTML tags (e.g. '<div class=\"content-intro\">', '<p>', '<strong>'). Greenhouse's board API returns the `content` field HTML-ENCODED (starts with '&lt;div ...&gt;'). _try_greenhouse passes it directly to _html_to_plain, which BeautifulSoup-parses '&lt;div&gt;...' — BS decodes the entities so what LOOKS like plaintext still contains literal '<div>' characters. Fix: html.unescape(desc_html) BEFORE _html_to_plain, or move that unescape into _html_to_plain. Same latent risk in _try_lever's fallback branch. This directly hurts (a) the UX (users see raw markup in the JD textarea) and (b) downstream LLM /analyze quality (keywords wrapped in <strong> confuse tokenization).", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Dashboard + Compare autofill from Greenhouse URL", "issue": "The autofilled Job description textarea shows raw HTML markup (see /app/.screenshots/compare_iter3.png: '<div class=\"content-intro\"><p>Discord has ... <strong>play video games.</strong>...'). Cause is the backend bug above; frontend just renders what the API returns.", "affected_selectors": ["[data-testid=\"job-description-input\"]", "[data-testid=\"compare-job-description\"]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter3_scrape_and_parallel.py",
+    "/app/backend/tests/test_streaming_compare_cover.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix _try_greenhouse in /app/backend/jd_scraper.py: html.unescape(data.get('content','')) BEFORE _html_to_plain. Alternatively, at the top of _html_to_plain, do `html = html_lib.unescape(html or '')`. Re-run the Greenhouse test after; the desc should contain zero '<' or '>' characters.",
+    "Optionally audit _try_lever's fallback (`_html_to_plain(data['description'])`) if Lever ever returns entity-encoded HTML."
+  ],
+  "critical_code_review_comments": [
+    "jd_scraper._try_greenhouse: does not html.unescape the Greenhouse `content` field, so the 'plaintext' output still contains literal '<div>', '<p>', '<strong>' tags. HIGH priority — this is the golden-path adapter for the demo URL.",
+    "jd_scraper._try_lever: relies on descriptionPlain first (good), but the descriptionPlain-missing fallback has the same latent bug pattern.",
+    "server.py POST /compare: asyncio.gather + Semaphore(5) is correct and measurably fast (T3=1.10*T1 for 3 resumes). Fetching resume docs concurrently in a first gather is a nice touch.",
+    "server.py POST /scrape-jd: try/except ValueError -> 400 is clean; the generic Exception path also converts to 400 with 'Failed to scrape: {e}' — consider distinguishing genuinely bad-request (unfetchable) from provider errors (502) for observability. Not blocking.",
+    "jd_scraper._from_llm: sends `content[:14000]` — good guard against runaway prompts.",
+    "JdUrlFetcher.jsx: clean; uses http(s) regex client-side, disables button while busy, clears input after success. No a11y label on the URL input, but placeholder + icon is fine for MVP.",
+    "Compare.jsx dedupe: matches spec exactly (lowercased+trimmed filename, keeps newest because server returns items sorted desc by created_at, toggle label copy matches). Nicely done."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter3_scrape_and_parallel.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Demo user: test@resumematch.ai / testpass123 (verified working). File: /app/memory/test_credentials.md.",
+  "seed_data_creation": "Test uploads produced enough duplicate filenames (perf_resume.pdf x4, history_seed.pdf x3, stream_test.pdf x4, sample_resume.pdf x2) so the compare-show-all-toggle is exercised naturally (7 unique -> 16 total).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The Greenhouse scrape-jd HTML-entity bug is the only outstanding item. Repro command: POST /api/scrape-jd {url:'https://job-boards.greenhouse.io/discord/jobs/8433948002'} with Bearer token; grep the response's job_description for '<div' — currently returns ~88 tag-like tokens, should be 0 after fix. All other iteration-3 acceptance criteria (parallel compare wallclock, search+dedupe UI, JdUrlFetcher round-trip) confirmed working. Backend supervisor is auto-reloading; no restart needed after code fix. Note pytest.ini pins -n 2 --dist loadscope; use `-n 0` (NOT `-p no:xdist`) for serial runs.",
+  "feature_verdicts": [
+    "POST /api/scrape-jd (Greenhouse provider API, no LLM) - pass with concern - evidence: 200 OK in 0.21s wallclock, job_title='Account Executive - Tech', desc len=5161 chars > 500. CONCERN: desc contains 88 literal HTML tags due to missing html.unescape before BeautifulSoup — feature is functionally usable but output quality is degraded. skill: ai-testing-llm/core.",
+    "POST /api/scrape-jd auth + validation - pass - evidence: 401 without Bearer; 400 for 'not-a-real-url', 'https://example.com' (Example Domain), and unresolvable host.",
+    "POST /api/compare parallel execution - pass - evidence: /analyze single call = 10.24s; /compare with 3 identical resume_ids = 11.32s (ratio 1.10x); passes assert t3 < 1.6*t1. asyncio.gather + Semaphore(5) confirmed as parallel, not serial. Results sorted by ats_score desc. Skill: ai-testing-llm.",
+    "POST /api/compare bounds - pass - evidence: empty resume_ids -> 400; 6 ids -> 400; JD <30 chars -> 400.",
+    "Frontend Dashboard JdUrlFetcher round-trip - pass - evidence: Pasting Greenhouse URL populated [data-testid=job-title-input]='Account Executive - Tech' and [data-testid=job-description-input] with 5161-char content. Success toast rendered.",
+    "Frontend Compare JdUrlFetcher round-trip - pass - evidence: [data-testid=compare-jd-url-input] + [compare-jd-url-fetch-btn] present; autofill populated [compare-job-title] + [compare-job-description] with same real Greenhouse content.",
+    "Frontend Compare search filter - pass - evidence: typing 'perf' filtered library to only 'perf_resume.pdf' entries; 'PERF' returned the same set (case-insensitive); 'zzzzz-nomatch' showed 'No resumes match your search.' empty-state.",
+    "Frontend Compare dedupe + show-all toggle - pass - evidence: Library has 16 resumes across 7 unique filenames; default view shows 7 rows; toggle label reads 'Show all 16 versions (9 duplicate filenames hidden)'; toggling on expands rows_before=7 -> rows_after=16.",
+    "Existing streaming endpoints (analyze/optimize/cover-letter) + PDFs + resume library + history - pass - evidence: all 28 legacy pytest tests still green.",
+    "Compare page rendering results table - not exercised in this iteration (already covered green in iteration_2); pass-by-regression via test_compare_two_resumes_returns_sorted_results."
+  ],
+  "rca of the issue": "Greenhouse's board API (https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{id}) returns the `content` field as HTML-ENTITY-ENCODED HTML (i.e. '&lt;div class=&quot;content-intro&quot;&gt;&lt;p&gt;Discord ...'). In jd_scraper._try_greenhouse this value is passed straight to _html_to_plain, which does BeautifulSoup(html, 'lxml').get_text(). BeautifulSoup treats the entities as text, decodes them, and returns a string containing the literal characters '<div>', '<p>', '<strong>' etc. The result looks like plaintext to len() but is actually markup-in-text — bad for the textarea display and bad for downstream LLM analysis. Fix is 3 chars of Python: `import html as html_lib` then `desc_html = html_lib.unescape(data.get('content') or '')` before calling _html_to_plain. Alternatively, the more defensive fix is to add `import html; html = html.unescape(html or '')` as the first line of _html_to_plain so ALL provider adapters benefit."
+}

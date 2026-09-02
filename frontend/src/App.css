@@ -1,0 +1,6 @@
+/* App styles kept minimal to preserve dark theme and left alignment. */
+.App {
+  background: #0A0A0A;
+  min-height: 100vh;
+  color: #F5F5F5;
+}

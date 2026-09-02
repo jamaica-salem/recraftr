@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom fonts */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+body {
+  margin: 0;
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #0A0A0A;
+  color: #F5F5F5;
+}
+
+code, .font-mono {
+  font-family: 'IBM Plex Mono', Menlo, Monaco, monospace;
+}
+
+.font-display {
+  font-family: 'Outfit', sans-serif;
+  letter-spacing: -0.02em;
+}
+
+@layer base {
+  :root {
+    /* Force dark palette (no gradients anywhere) */
+    --background: 0 0% 3.9%;      /* #0A0A0A */
+    --foreground: 0 0% 96%;        /* #F5F5F5 */
+    --card: 0 0% 7.8%;             /* #141414 */
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 7.8%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 217 91% 60%;        /* #2563EB */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 14.9%;       /* #262626 */
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 12.2%;           /* #1F1F1F */
+    --muted-foreground: 0 0% 64%;  /* #A3A3A3 */
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 74% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 14.9%;          /* #262626 */
+    --input: 0 0% 14.9%;
+    --ring: 217 91% 60%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #0A0A0A; }
+::-webkit-scrollbar-thumb { background: #262626; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #333333; }
+
+::selection { background: #2563EB; color: #FFFFFF; }
+
+/* Small utilities */
+.label-caps {
+  font-size: 0.68rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #A3A3A3;
+  font-weight: 600;
+}
+
+.card-solid {
+  background: #141414;
+  border: 1px solid #262626;
+  border-radius: 12px;
+}
+
+/* Diff line highlight */
+.diff-add { background: rgba(22, 163, 74, 0.12); color: #86efac; }
+.diff-del { background: rgba(220, 38, 38, 0.12); color: #fca5a5; text-decoration: line-through; }
+.diff-eq  { color: #A3A3A3; }
+
+/* Loading pulse dot */
+@keyframes rm-pulse-dot {
+  0%, 100% { opacity: 0.25; transform: scale(0.9); }
+  50%      { opacity: 1;    transform: scale(1); }
+}
+.rm-dot { animation: rm-pulse-dot 1.2s ease-in-out infinite; }
+
+/* Reveal */
+@keyframes rm-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.rm-fade-up { animation: rm-fade-up 0.35s ease-out both; }
+
+@layer base {
+  [data-debug-wrapper="true"] { display: contents !important; }
+}

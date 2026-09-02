@@ -1,0 +1,33 @@
+{
+  "summary": "Iter4 backend-only retest of the Greenhouse HTML-entity-decoding fix in /app/backend/jd_scraper.py. VERIFIED FIXED. Live curl against POST /api/scrape-jd with https://job-boards.greenhouse.io/discord/jobs/8433948002 now returns job_title='Account Executive - Tech' and a 4509-char clean plaintext job_description with ZERO occurrences of '<div', '<p>', '<strong', '</', or even a single '<' character (was 88+ tag tokens in iter3). Strengthened the existing regression test (test_iter3_scrape_and_parallel.py::TestScrapeJd::test_scrape_greenhouse_url_fast_and_no_llm) with an explicit assertion `desc.count('<') == 0` plus a forbidden-token dict; it passes. Full suite: 28/32 pytest pass, 3 skipped, 4 fail — all 4 failures are unrelated to this fix and are caused by the EMERGENT_LLM_KEY provider budget being exceeded ('Current cost: 0.8595, Max budget: 0.8'). Skills loaded: ai-testing-core (mandatory)—no LLM-under-test skill needed since this iteration only validates deterministic HTML parsing, not LLM output.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/analyze, POST /api/compare, POST /api/analyze/stream", "issue": "EMERGENT_LLM_KEY budget exceeded (litellm.BadRequestError: 'Budget has been exceeded! Current cost: 0.8595, Max budget: 0.8'). Unrelated to the Greenhouse fix — blocks any test that calls a real LLM. Main agent should top up / rotate the key before the next full regression pass."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter3_scrape_and_parallel.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Top up or rotate EMERGENT_LLM_KEY — current provider budget is exhausted (>$0.85 vs $0.80 max), which breaks /api/analyze, /api/compare, and /api/analyze/stream. Once refreshed, re-run pytest -n 0 tests/ and the remaining 4 tests should pass.",
+    "Optional: audit _try_lever's descriptionPlain-missing fallback for the same entity issue (not observed live, but same pattern) — since the fix now lives in _html_to_plain it is already covered defensively."
+  ],
+  "critical_code_review_comments": [
+    "jd_scraper._html_to_plain: html.unescape moved to the top of the function is the right layer for the fix — every adapter (_try_greenhouse, _try_lever, _try_ashby, _try_jsonld) benefits automatically. Clean 3-line diff, no behavior change for already-plain input (html.unescape is a no-op).",
+    "jd_scraper.py: `import html as html_lib` avoids shadowing the local `html` parameter — good defensive rename.",
+    "No new tests were added by the main agent for the regression; the strengthened assertion I added (desc.count('<') == 0) now guards against a rerun of the bug."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter3_scrape_and_parallel.py"
+  ],
+  "success_rate": {"backend": "100% (Greenhouse HTML-entity fix); 28/32 overall — 4 failures are LLM-provider-budget-exceeded, not code issues", "frontend": "not tested (backend-only scope)"},
+  "test_credentials": "Demo user: test@resumematch.ai / testpass123 (from /app/memory/test_credentials.md).",
+  "seed_data_creation": "None new. Reused existing demo user + iter3 uploaded PDFs.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The Greenhouse HTML-entity-decoding bug is fixed and locked-in with a strict regression assertion (`desc.count('<') == 0` + forbidden-token dict) in test_iter3_scrape_and_parallel.py. If you see LLM-related test failures with 'Budget has been exceeded!' — that is an EMERGENT_LLM_KEY quota issue, not a code regression; ask main agent to top up the key. Pytest is configured with `-n 2 --dist loadscope` in /app/backend/pytest.ini; use `-n 0` for serial. Run tests with `REACT_APP_BACKEND_URL` exported from /app/frontend/.env.",
+  "rca of the issue": "iter3 RCA: Greenhouse's board API returns the `content` field as HTML-ENTITY-ENCODED HTML (e.g. '&lt;div&gt;&lt;p&gt;...&lt;/p&gt;&lt;/div&gt;'). BeautifulSoup treats the entities as text data, decodes them to literal '<div><p>...</p></div>' characters, and returns them from get_text(). Fix (verified): the very first line of _html_to_plain now does `unescaped = html_lib.unescape(html or '')` and BeautifulSoup parses that, so the decoded entities become real DOM tags and get stripped by get_text(). Live evidence: curl POST /api/scrape-jd on the Discord Account Executive URL returns 4509 chars with 0 '<' characters (was 88+ in iter3)."
+}
