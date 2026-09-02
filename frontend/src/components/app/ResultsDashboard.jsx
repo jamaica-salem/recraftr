@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { RESUME } from "@/constants/testIds";
 import { API, useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { Copy, Download, Sparkles, CheckCircle2, Circle, AlertCircle, Mail, Code, Sparkle } from "lucide-react";
+import { Copy, Download, Sparkles, CheckCircle2, Circle, AlertCircle, Mail, Code, Sparkle, Kanban, BookmarkPlus } from "lucide-react";
 import ExportModal from "@/components/ExportModal";
 import InteractiveBulletEditor from "@/components/app/InteractiveBulletEditor";
 
@@ -131,6 +131,37 @@ export default function ResultsDashboard({
       await navigator.clipboard.writeText(text || "");
       toast.success(`${label} copied`);
     } catch { toast.error("Copy failed"); }
+  };
+
+  const [savingToTracker, setSavingToTracker] = useState(false);
+
+  const saveToTracker = async () => {
+    try {
+      setSavingToTracker(true);
+      const payload = {
+        job_title: analysis?.job_title || "Target Role",
+        company_name: "Target Company",
+        status: "applied",
+        ats_score: analysis?.ats_score,
+        job_description: analysis?.job_description || "",
+        optimized_resume: activeResumeText,
+        cover_letter: coverLetter || "",
+      };
+      const res = await fetch(`${API}/applications`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Failed to save application");
+      toast.success("Package saved to Job Tracker!");
+    } catch {
+      toast.error("Could not save to tracker");
+    } finally {
+      setSavingToTracker(false);
+    }
   };
 
   const downloadResumePdf = () => {
@@ -324,6 +355,15 @@ export default function ResultsDashboard({
                     </button>
                   </div>
 
+                  <Button
+                    onClick={saveToTracker}
+                    disabled={savingToTracker}
+                    variant="outline"
+                    className="bg-transparent border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/20 hover:text-white rounded-full"
+                  >
+                    <BookmarkPlus className="w-4 h-4 mr-2 text-indigo-400" />
+                    {savingToTracker ? "Saving..." : "Save to Tracker"}
+                  </Button>
                   <Button data-testid={RESUME.copyResumeBtn} variant="outline"
                     onClick={() => copyText(activeResumeText, "Optimized resume")}
                     className="bg-transparent border-[#262626] text-neutral-200 hover:bg-[#1F1F1F] hover:text-white rounded-full">
