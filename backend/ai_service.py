@@ -1,10 +1,16 @@
-"""LLM integration: streaming analyze/optimize/cover-letter using Google Gemini Free API."""
+"""LLM integration with Deterministic Engine + Gemini Primary & Groq Fallback AI Layer."""
 import os
 import json
 import re
 import asyncio
+import logging
 from typing import Any, Dict, AsyncGenerator
 
+from deterministic_engine import analyze_deterministic
+
+logger = logging.getLogger("recraftr.ai")
+
+# ---------------- SDK Imports ----------------
 try:
     from google import genai
     from google.genai import types
@@ -12,23 +18,27 @@ except ImportError:
     genai = None
     types = None
 
+try:
+    from groq import AsyncGroq
+except ImportError:
+    AsyncGroq = None
+
+# ---------------- Environment & Models Configuration ----------------
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.6-flash')
+GROQ_MODEL = os.environ.get('GROQ_MODEL', 'openai/gpt-oss-120b')
 
 MODELS = {
-    "gemini-2.5-flash": "gemini-2.5-flash",
-    "gemini-2.0-flash": "gemini-2.0-flash",
-    "gemini-1.5-flash": "gemini-1.5-flash",
-    "gpt-5.4": "gemini-2.5-flash",
-    "gemini-3-flash": "gemini-2.5-flash",
+    "gemini-3.6-flash": ("gemini", GEMINI_MODEL),
+    "gemini-2.5-flash": ("gemini", GEMINI_MODEL),
+    "groq-gpt-oss-120b": ("groq", GROQ_MODEL),
+    "groq-llama3-70b": ("groq", GROQ_MODEL),
+    # Legacy fallbacks
+    "gpt-5.4": ("gemini", GEMINI_MODEL),
+    "gemini-3-flash": ("gemini", GEMINI_MODEL),
 }
-DEFAULT_MODEL = "gemini-2.5-flash"
-
-
-def _get_client() -> Any:
-    key = os.environ.get('GEMINI_API_KEY') or GEMINI_API_KEY
-    if not key or not genai:
-        return None
-    return genai.Client(api_key=key)
+DEFAULT_MODEL = "gemini-3.6-flash"
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -146,41 +156,91 @@ Return ONLY:
 }}"""
 
 
-# ---------------- Core Gemini Execution ----------------
+# ---------------- Primary Provider: Gemini ----------------
+async def _stream_gemini(system: str, prompt: str, model_name: str) -> AsyncGenerator[str, None]:
+    key = os.environ.get('GEMINI_API_KEY') or GEMINI_API_KEY
+    if not key or not genai:
+        raise RuntimeError("Gemini API key or SDK missing")
+    
+    client = genai.Client(api_key=key)
+    config = types.GenerateContentConfig(
+        system_instruction=system,
+        response_mime_type="application/json",
+    )
+    response_stream = await client.aio.models.generate_content_stream(
+        model=model_name,
+        contents=prompt,
+        config=config,
+    )
+    async for chunk in response_stream:
+        if chunk.text:
+            yield chunk.text
+
+
+# ---------------- Fallback Provider: Groq ----------------
+async def _stream_groq(system: str, prompt: str, model_name: str = "") -> AsyncGenerator[str, None]:
+    key = os.environ.get('GROQ_API_KEY') or GROQ_API_KEY
+    if not key or not AsyncGroq:
+        raise RuntimeError("Groq API key or SDK missing")
+
+    target_model = model_name or os.environ.get('GROQ_MODEL', 'openai/gpt-oss-120b')
+    client = AsyncGroq(api_key=key, max_retries=1)
+    response_stream = await client.chat.completions.create(
+        model=target_model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.3,
+        response_format={"type": "json_object"},
+        stream=True,
+    )
+    async for chunk in response_stream:
+        content = chunk.choices[0].delta.content or ""
+        if content:
+            yield content
+
+
+# ---------------- Core Hybrid Pipeline & Failover ----------------
 async def _run_stream(system: str, prompt: str, model_key: str = DEFAULT_MODEL) -> AsyncGenerator[Dict[str, Any], None]:
-    model_name = MODELS.get(model_key, DEFAULT_MODEL)
-    client = _get_client()
+    provider, model_name = MODELS.get(model_key, MODELS[DEFAULT_MODEL])
     buf = ""
 
-    if client:
+    # 1. Try Gemini Primary
+    if (os.environ.get('GEMINI_API_KEY') or GEMINI_API_KEY) and genai:
         try:
-            config = types.GenerateContentConfig(
-                system_instruction=system,
-                response_mime_type="application/json",
-            )
-            response_stream = await client.aio.models.generate_content_stream(
-                model=model_name,
-                contents=prompt,
-                config=config,
-            )
-            async for chunk in response_stream:
-                if chunk.text:
-                    buf += chunk.text
-                    yield {"type": "delta", "text": chunk.text}
+            logger.info("Executing Primary AI: Gemini (%s)", model_name)
+            async for chunk_text in _stream_gemini(system, prompt, model_name):
+                buf += chunk_text
+                yield {"type": "delta", "text": chunk_text}
             yield {"type": "result", "raw": buf, "parsed": _extract_json(buf)}
             return
-        except Exception:
-            # Fallback mock if API error or quota issue occurs
-            pass
+        except Exception as e:
+            logger.warning("Gemini Primary failed (%s). Failing over to Groq Fallback...", e)
+            buf = ""
 
-    # Mock fallback generator when GEMINI_API_KEY is not set or call fails
-    if "optimized_resume" in prompt or "resume writer" in system.lower():
+    # 2. Try Groq Fallback
+    if (os.environ.get('GROQ_API_KEY') or GROQ_API_KEY) and AsyncGroq:
+        try:
+            groq_model = model_name if provider == "groq" else os.environ.get('GROQ_MODEL', 'openai/gpt-oss-120b')
+            logger.info("Executing Fallback AI: Groq (%s)", groq_model)
+            async for chunk_text in _stream_groq(system, prompt, groq_model):
+                buf += chunk_text
+                yield {"type": "delta", "text": chunk_text}
+            yield {"type": "result", "raw": buf, "parsed": _extract_json(buf)}
+            return
+        except Exception as e:
+            logger.warning("Groq Fallback failed (%s). Falling back to Deterministic Engine...", e)
+            buf = ""
+
+    # 3. Fallback to Deterministic Mock Stream
+    if "resume writer" in system.lower() or "optimized_resume" in prompt:
         mock_data = {
             "optimized_resume": "SUMMARY\nSenior Software Engineer with deep expertise in Python, FastAPI, and React.\n\nSKILLS\nPython, FastAPI, React, JavaScript, MongoDB, REST APIs, Git\n\nEXPERIENCE\nSenior Engineer | Recraftr | 2022 - Present\n- Built high-performance async APIs with FastAPI and Motor.\n- Integrated Google Gemini AI models for real-time streaming.\n\nEDUCATION\nB.S. Computer Science",
             "predicted_ats_score": 96,
             "changes_summary": ["Quantified impact of engineering projects", "Enhanced skill alignment with Gemini AI"]
         }
-    elif "ats_score" in prompt or "ats analyzer" in system.lower():
+    elif "ats analyzer" in system.lower() or "ats_score" in prompt:
         mock_data = {
             "ats_score": 88,
             "breakdown": {"keyword_match": 85, "skills_match": 90, "experience_match": 88},
@@ -220,13 +280,52 @@ async def _run_stream(system: str, prompt: str, model_key: str = DEFAULT_MODEL) 
     yield {"type": "result", "raw": buf, "parsed": _extract_json(buf)}
 
 
-# ---------------- Non-streaming helpers ----------------
+# ---------------- Unified Analysis Merger ----------------
+def create_unified_analysis(resume_text: str, job_title: str, job_description: str, ai_result: Dict[str, Any]) -> Dict[str, Any]:
+    """Combines output of Deterministic Engine + AI Layer into a single Unified Analysis object."""
+    det = analyze_deterministic(resume_text, job_title, job_description)
+    
+    # Take AI ATS score if present, else fallback to deterministic ATS score
+    ai_score = ai_result.get("ats_score")
+    final_score = ai_score if isinstance(ai_score, int) else det["ats_score"]
+
+    # Merge breakdown
+    ai_breakdown = ai_result.get("breakdown") or {}
+    final_breakdown = {
+        "keyword_match": ai_breakdown.get("keyword_match", det["breakdown"]["keyword_match"]),
+        "skills_match": ai_breakdown.get("skills_match", det["breakdown"]["skills_match"]),
+        "experience_match": ai_breakdown.get("experience_match", det["breakdown"]["experience_match"]),
+    }
+
+    # Merge gap analysis & sections
+    gap_analysis = ai_result.get("gap_analysis") or det["gap_analysis"]
+    missing_skills = ai_result.get("missing_skills") or det["missing_skills"]
+    resume_sections = ai_result.get("resume_sections") or det["resume_sections"]
+    improvements = ai_result.get("improvements") or [
+        "Add measurable metrics to past experience bullet points",
+        "Align technical skills list explicitly with required keywords"
+    ]
+
+    return {
+        "ats_score": final_score,
+        "breakdown": final_breakdown,
+        "resume_sections": resume_sections,
+        "job_requirements": ai_result.get("job_requirements") or det["job_requirements"],
+        "gap_analysis": gap_analysis,
+        "missing_skills": missing_skills,
+        "improvements": improvements,
+        "deterministic_metrics": det.get("deterministic_metrics", {})
+    }
+
+
+# ---------------- Non-streaming Endpoint Functions ----------------
 async def analyze_resume(resume_text: str, job_title: str, job_description: str, model_key: str = DEFAULT_MODEL) -> Dict[str, Any]:
     prompt = ANALYZE_PROMPT.format(job_title=job_title, job_description=job_description, resume_text=resume_text[:12000])
+    parsed_ai = {}
     async for ev in _run_stream(ANALYZE_SYSTEM, prompt, model_key):
         if ev.get("type") == "result":
-            return ev.get("parsed") or {}
-    return {}
+            parsed_ai = ev.get("parsed") or {}
+    return create_unified_analysis(resume_text, job_title, job_description, parsed_ai)
 
 
 async def optimize_resume(resume_text: str, job_title: str, job_description: str, aggressive: bool = False, model_key: str = DEFAULT_MODEL) -> Dict[str, Any]:
@@ -240,11 +339,18 @@ async def optimize_resume(resume_text: str, job_title: str, job_description: str
     return {}
 
 
-# ---------------- Streaming helpers ----------------
+# ---------------- Streaming Endpoint Functions ----------------
 async def analyze_stream(resume_text: str, job_title: str, job_description: str, model_key: str = DEFAULT_MODEL) -> AsyncGenerator[Dict[str, Any], None]:
     prompt = ANALYZE_PROMPT.format(job_title=job_title, job_description=job_description, resume_text=resume_text[:12000])
+    raw_ai = {}
     async for ev in _run_stream(ANALYZE_SYSTEM, prompt, model_key):
-        yield ev
+        if ev.get("type") == "delta":
+            yield ev
+        elif ev.get("type") == "result":
+            raw_ai = ev.get("parsed") or {}
+    
+    unified = create_unified_analysis(resume_text, job_title, job_description, raw_ai)
+    yield {"type": "result", "parsed": unified}
 
 
 async def optimize_stream(resume_text: str, job_title: str, job_description: str, aggressive: bool, model_key: str = DEFAULT_MODEL) -> AsyncGenerator[Dict[str, Any], None]:

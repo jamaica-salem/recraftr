@@ -28,7 +28,7 @@ from ai_service import (
     analyze_stream, optimize_stream, cover_letter_stream,
     DEFAULT_MODEL,
 )
-from pdf_generator import build_pdf, build_cover_letter_pdf
+from pdf_generator import build_pdf, build_cover_letter_pdf, build_html
 from jd_scraper import scrape_jd
 import asyncio
 
@@ -421,18 +421,29 @@ async def scrape_jd_endpoint(payload: ScrapeJdRequest, user_id: str = Depends(ge
     return result
 
 
-# ---------------- PDF downloads ----------------
+# ---------------- PDF & HTML downloads ----------------
 class PdfRequest(BaseModel):
     resume_text: str
     filename: Optional[str] = "resume-optimized"
+    template: Optional[str] = "classic"
+    custom_styles: Optional[dict] = None
+    format: Optional[str] = "pdf"
 
 
 @api.post("/download-pdf")
 async def download_pdf(payload: PdfRequest, user_id: str = Depends(get_current_user)):
     if not payload.resume_text or len(payload.resume_text.strip()) < 20:
         raise HTTPException(status_code=400, detail="Resume text is empty")
-    pdf_bytes = build_pdf(payload.resume_text)
     name = (payload.filename or "resume-optimized").replace('"', '').strip() or "resume-optimized"
+
+    if (payload.format or "pdf").lower() == "html":
+        html_str = build_html(payload.resume_text, template=payload.template, custom_styles=payload.custom_styles)
+        return StreamingResponse(
+            io.BytesIO(html_str.encode("utf-8")), media_type="text/html",
+            headers={"Content-Disposition": f'attachment; filename="{name}.html"'},
+        )
+
+    pdf_bytes = build_pdf(payload.resume_text, template=payload.template, custom_styles=payload.custom_styles)
     return StreamingResponse(
         io.BytesIO(pdf_bytes), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{name}.pdf"'},
@@ -444,6 +455,9 @@ class CoverLetterPdfRequest(BaseModel):
     candidate_name: Optional[str] = ""
     job_title: Optional[str] = ""
     filename: Optional[str] = "cover-letter"
+    template: Optional[str] = "classic"
+    custom_styles: Optional[dict] = None
+    format: Optional[str] = "pdf"
 
 
 @api.post("/cover-letter-pdf")
@@ -452,8 +466,23 @@ async def cover_letter_pdf(payload: CoverLetterPdfRequest, user_id: str = Depend
         raise HTTPException(status_code=400, detail="Cover letter is empty")
     user = await db.users.find_one({"id": user_id})
     name = payload.candidate_name or (user.get("name") if user else "")
-    pdf_bytes = build_cover_letter_pdf(payload.cover_letter, name or "", payload.job_title or "")
     fname = (payload.filename or "cover-letter").replace('"', '').strip() or "cover-letter"
+
+    if (payload.format or "pdf").lower() == "html":
+        header_title = f"Cover Letter — {payload.job_title}" if payload.job_title else "Cover Letter"
+        html_str = build_html(
+            f"{name}\n{header_title}\n\n{payload.cover_letter}",
+            template=payload.template, custom_styles=payload.custom_styles
+        )
+        return StreamingResponse(
+            io.BytesIO(html_str.encode("utf-8")), media_type="text/html",
+            headers={"Content-Disposition": f'attachment; filename="{fname}.html"'},
+        )
+
+    pdf_bytes = build_cover_letter_pdf(
+        payload.cover_letter, candidate_name=name or "", job_title=payload.job_title or "",
+        template=payload.template, custom_styles=payload.custom_styles
+    )
     return StreamingResponse(
         io.BytesIO(pdf_bytes), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{fname}.pdf"'},
