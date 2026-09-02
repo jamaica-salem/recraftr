@@ -3,10 +3,10 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { RESUME } from "@/constants/testIds";
-import axios from "axios";
 import { API, useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { Copy, Download, Sparkles, CheckCircle2, Circle, AlertCircle, Mail } from "lucide-react";
+import ExportModal from "@/components/ExportModal";
 
 function scoreColor(score) {
   if (score >= 80) return { hex: "#16A34A", label: "Strong", ring: "text-[#22C55E]" };
@@ -106,8 +106,9 @@ export default function ResultsDashboard({
   analysis, optimization, originalResumeText, coverLetter,
   onOptimize, onGenerateCoverLetter, optimizing, coverLoading,
 }) {
-  const { authHeaders, user } = useAuth();
+  const { token, user } = useAuth();
   const [tab, setTab] = useState("overview");
+  const [exportModal, setExportModal] = useState({ open: false, type: "resume" });
 
   const missing = analysis?.missing_skills || {};
   const gap = analysis?.gap_analysis || [];
@@ -121,41 +122,14 @@ export default function ResultsDashboard({
     } catch { toast.error("Copy failed"); }
   };
 
-  const downloadResumePdf = async () => {
+  const downloadResumePdf = () => {
     if (!optimization?.optimized_resume) return;
-    try {
-      const res = await axios.post(
-        `${API}/download-pdf`,
-        { resume_text: optimization.optimized_resume, filename: "resume-optimized" },
-        { headers: authHeaders, responseType: "blob" },
-      );
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
-      const a = document.createElement("a");
-      a.href = url; a.download = "resume-optimized.pdf";
-      document.body.appendChild(a); a.click(); a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch { toast.error("Download failed"); }
+    setExportModal({ open: true, type: "resume" });
   };
 
-  const downloadCoverPdf = async () => {
+  const downloadCoverPdf = () => {
     if (!coverLetter) return;
-    try {
-      const res = await axios.post(
-        `${API}/cover-letter-pdf`,
-        {
-          cover_letter: coverLetter,
-          candidate_name: user?.name || "",
-          job_title: analysis?.job_title || "",
-          filename: "cover-letter",
-        },
-        { headers: authHeaders, responseType: "blob" },
-      );
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
-      const a = document.createElement("a");
-      a.href = url; a.download = "cover-letter.pdf";
-      document.body.appendChild(a); a.click(); a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch { toast.error("Download failed"); }
+    setExportModal({ open: true, type: "cover_letter" });
   };
 
   return (
@@ -414,6 +388,20 @@ export default function ResultsDashboard({
           )}
         </TabsContent>
       </Tabs>
+
+      <ExportModal
+        open={exportModal.open}
+        onClose={() => setExportModal({ open: false, type: "resume" })}
+        title={exportModal.type === "cover_letter" ? "Export Cover Letter" : "Export Optimized Resume"}
+        downloadType={exportModal.type}
+        resumeText={optimization?.optimized_resume || ""}
+        coverLetterText={coverLetter || ""}
+        candidateName={user?.name || ""}
+        jobTitle={analysis?.job_title || ""}
+        filename={exportModal.type === "cover_letter" ? "cover-letter" : "resume-optimized"}
+        token={token}
+        backendUrl={API.replace(/\/api$/, "")}
+      />
     </div>
   );
 }
