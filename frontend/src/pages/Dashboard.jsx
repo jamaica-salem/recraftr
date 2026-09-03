@@ -25,7 +25,7 @@ export default function Dashboard() {
   const [jobTitle, setJobTitle] = useState("");
   const [jobDesc, setJobDesc] = useState("");
   const [aggressive, setAggressive] = useState(false);
-  const [model, setModel] = useState("gemini-3.6-flash");
+  const [model, setModel] = useState("gemini-3.5-flash");
 
   const [analysis, setAnalysis] = useState(null);
   const [optimization, setOptimization] = useState(null);
@@ -287,7 +287,8 @@ export default function Dashboard() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-[#141414] border-[#262626]">
-                    <SelectItem value="gemini-3.6-flash">Gemini 3.6 Flash (Primary AI)</SelectItem>
+                    <SelectItem value="gemini-3.5-flash">Gemini 3.5 Flash (Primary AI)</SelectItem>
+                    <SelectItem value="gemini-flash-latest">Gemini Flash (Fast AI)</SelectItem>
                     <SelectItem value="groq-gpt-oss-120b">Groq GPT-OSS 120B (Fallback AI)</SelectItem>
                   </SelectContent>
                 </Select>
