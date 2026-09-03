@@ -6,6 +6,7 @@ module.exports = {
     "./public/index.html"
   ],
   theme: {
+    extend: {
       fontFamily: {
         sans: ['Sora', 'IBM Plex Sans', 'sans-serif'],
         display: ['Outfit', 'sans-serif'],
