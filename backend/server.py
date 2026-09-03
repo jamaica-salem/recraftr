@@ -176,17 +176,32 @@ class OptimizeRequest(BaseModel):
     aggressive: bool = False
 
 
+async def _get_resume_text(row: dict, user_id: str) -> str:
+    resume_id = row.get("resume_id")
+    if resume_id:
+        resume = await db.resumes.find_one({"id": resume_id, "user_id": user_id})
+        if resume and resume.get("text"):
+            return resume["text"]
+    if row.get("original_resume_text"):
+        return row["original_resume_text"]
+    analysis_text = (row.get("analysis") or {}).get("resume_text")
+    if analysis_text:
+        return analysis_text
+    opt_text = (row.get("optimization") or {}).get("optimized_resume")
+    if opt_text:
+        return opt_text
+    raise HTTPException(status_code=404, detail="Original resume text not found")
+
+
 @api.post("/optimize")
 async def optimize(payload: OptimizeRequest, user_id: str = Depends(get_current_user)):
     row = await db.analyses.find_one({"id": payload.analysis_id, "user_id": user_id})
     if not row:
         raise HTTPException(status_code=404, detail="Analysis not found")
-    resume = await db.resumes.find_one({"id": row["resume_id"], "user_id": user_id})
-    if not resume:
-        raise HTTPException(status_code=404, detail="Original resume not found")
+    resume_text = await _get_resume_text(row, user_id)
     try:
         result = await optimize_resume(
-            resume["text"], row["job_title"], row["job_description"],
+            resume_text, row["job_title"], row["job_description"],
             aggressive=payload.aggressive, model_key=row.get("model", DEFAULT_MODEL),
         )
     except Exception as e:
@@ -198,11 +213,11 @@ async def optimize(payload: OptimizeRequest, user_id: str = Depends(get_current_
         {"id": payload.analysis_id},
         {"$set": {
             "optimization": {**result, "aggressive": payload.aggressive},
-            "original_resume_text": resume["text"],
+            "original_resume_text": resume_text,
             "optimized_at": datetime.now(timezone.utc).isoformat(),
         }},
     )
-    return {"analysis_id": payload.analysis_id, "original_resume_text": resume["text"], **result}
+    return {"analysis_id": payload.analysis_id, "original_resume_text": resume_text, **result}
 
 
 # ---------------- Streaming (SSE) ----------------
@@ -264,15 +279,13 @@ async def optimize_stream_endpoint(payload: OptimizeRequest, user_id: str = Depe
     row = await db.analyses.find_one({"id": payload.analysis_id, "user_id": user_id})
     if not row:
         raise HTTPException(status_code=404, detail="Analysis not found")
-    resume = await db.resumes.find_one({"id": row["resume_id"], "user_id": user_id})
-    if not resume:
-        raise HTTPException(status_code=404, detail="Original resume not found")
+    resume_text = await _get_resume_text(row, user_id)
 
     async def gen():
         final = None
         try:
             async for ev in optimize_stream(
-                resume["text"], row["job_title"], row["job_description"],
+                resume_text, row["job_title"], row["job_description"],
                 aggressive=payload.aggressive, model_key=row.get("model", DEFAULT_MODEL),
             ):
                 if ev.get("type") == "delta":
@@ -287,11 +300,11 @@ async def optimize_stream_endpoint(payload: OptimizeRequest, user_id: str = Depe
                 {"id": payload.analysis_id},
                 {"$set": {
                     "optimization": {**final, "aggressive": payload.aggressive},
-                    "original_resume_text": resume["text"],
+                    "original_resume_text": resume_text,
                     "optimized_at": datetime.now(timezone.utc).isoformat(),
                 }},
             )
-            yield _sse({"type": "done", "analysis_id": payload.analysis_id, "original_resume_text": resume["text"], "result": final})
+            yield _sse({"type": "done", "analysis_id": payload.analysis_id, "original_resume_text": resume_text, "result": final})
         except Exception as e:
             yield _sse({"type": "error", "error": str(e)})
 
@@ -308,11 +321,8 @@ async def auto_optimize_stream_endpoint(payload: AutoOptimizeRequest, user_id: s
     row = await db.analyses.find_one({"id": payload.analysis_id, "user_id": user_id})
     if not row:
         raise HTTPException(status_code=404, detail="Analysis not found")
-    resume = await db.resumes.find_one({"id": row["resume_id"], "user_id": user_id})
-    if not resume:
-        raise HTTPException(status_code=404, detail="Original resume not found")
-
-    start_text = (row.get("optimization") or {}).get("optimized_resume") or resume["text"]
+    resume_text = await _get_resume_text(row, user_id)
+    start_text = (row.get("optimization") or {}).get("optimized_resume") or resume_text
 
     async def gen():
         final = None
@@ -335,16 +345,15 @@ async def auto_optimize_stream_endpoint(payload: AutoOptimizeRequest, user_id: s
                 {"id": payload.analysis_id},
                 {"$set": {
                     "optimization": {**final, "auto_boosted": True},
-                    "original_resume_text": resume["text"],
+                    "original_resume_text": resume_text,
                     "optimized_at": datetime.now(timezone.utc).isoformat(),
                 }},
             )
-            yield _sse({"type": "done", "analysis_id": payload.analysis_id, "original_resume_text": resume["text"], "result": final})
+            yield _sse({"type": "done", "analysis_id": payload.analysis_id, "original_resume_text": resume_text, "result": final})
         except Exception as e:
             yield _sse({"type": "error", "error": str(e)})
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers=SSE_HEADERS)
-
 
 
 # ---------------- Cover letter (streaming + PDF) ----------------
@@ -357,9 +366,7 @@ async def cover_letter_stream_endpoint(payload: CoverLetterRequest, user_id: str
     row = await db.analyses.find_one({"id": payload.analysis_id, "user_id": user_id})
     if not row:
         raise HTTPException(status_code=404, detail="Analysis not found")
-    resume = await db.resumes.find_one({"id": row["resume_id"], "user_id": user_id})
-    if not resume:
-        raise HTTPException(status_code=404, detail="Resume not found")
+    resume_text = await _get_resume_text(row, user_id)
 
     async def gen():
         final = None

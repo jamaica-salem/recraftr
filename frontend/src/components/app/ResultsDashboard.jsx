@@ -117,6 +117,7 @@ export default function ResultsDashboard({
   React.useEffect(() => {
     if (optimization?.optimized_resume) {
       setCurrentResumeText(optimization.optimized_resume);
+      setTab("optimized");
     }
   }, [optimization?.optimized_resume]);
 
