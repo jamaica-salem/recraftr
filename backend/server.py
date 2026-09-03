@@ -22,7 +22,8 @@ from auth import (
     UserRegister, UserLogin,
     hash_password, verify_password, create_token, get_current_user, new_user_doc,
 )
-from resume_parser import parse_resume
+from resume_parser import parse_resume, parse_resume_async
+from file_security import validate_upload_file, FileValidationError
 from ai_service import (
     analyze_resume, optimize_resume,
     analyze_stream, optimize_stream, auto_optimize_stream, cover_letter_stream, rewrite_bullet,
@@ -83,12 +84,27 @@ async def upload_resume(
     user_id: str = Depends(get_current_user),
 ):
     contents = await file.read()
-    if len(contents) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File too large (max 5MB)")
+    
+    # 1. Security & Format Pre-validation
     try:
-        text = parse_resume(file.filename or "resume", contents)
+        sanitized_filename = validate_upload_file(
+            original_filename=file.filename or "",
+            mime_type=file.content_type or "",
+            file_bytes=contents,
+        )
+    except FileValidationError as fve:
+        raise HTTPException(status_code=400, detail=str(fve))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"File validation error: {e}")
+
+    # 2. Async Parser Execution with 10.0s Timeout Guardrail
+    try:
+        text = await parse_resume_async(sanitized_filename, contents, timeout_seconds=10.0)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse resume: {e}")
+
     if len(text.strip()) < 20:
         raise HTTPException(
             status_code=400,
@@ -99,12 +115,12 @@ async def upload_resume(
     await db.resumes.insert_one({
         "id": resume_id,
         "user_id": user_id,
-        "filename": file.filename,
+        "filename": sanitized_filename,
         "text": text,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     return UploadResumeResponse(
-        resume_id=resume_id, filename=file.filename or "resume",
+        resume_id=resume_id, filename=sanitized_filename,
         text_preview=text[:400], char_count=len(text),
     )
 
@@ -372,7 +388,7 @@ async def cover_letter_stream_endpoint(payload: CoverLetterRequest, user_id: str
         final = None
         try:
             async for ev in cover_letter_stream(
-                resume["text"], row["job_title"], row["job_description"], row.get("model", DEFAULT_MODEL)
+                resume_text, row["job_title"], row["job_description"], row.get("model", DEFAULT_MODEL)
             ):
                 if ev.get("type") == "delta":
                     yield _sse({"type": "delta", "text": ev["text"]})
