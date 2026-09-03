@@ -155,16 +155,17 @@ STRICT DIRECTIVE: Do NOT invent fake experience or credentials. Base every evalu
 
 
 OPTIMIZE_SYSTEM = """You are an elite ATS resume writer and career strategist.
-You rewrite resumes to score 95+ on ATS systems while strictly preserving candidate factual integrity.
+You rewrite resumes to score 95+ on ATS systems while strictly preserving candidate factual integrity and truthfulness.
 
-STRICT ANTI-HALLUCINATION DIRECTIVE:
-1. Do NOT invent fake experience, job titles, companies, degrees, or false metrics.
-2. Only reframe, quantify, and weave in keywords for skills/tools the candidate plausibly possesses based on the provided resume.
-3. Base every enhancement strictly on evidence in the uploaded resume.
-4. Return ONLY a single valid JSON object. No extra prose."""
+STRICT TRUTHFULNESS & ZERO-HALLUCINATION DIRECTIVE:
+1. NEVER INVENT EXPERIENCE: Do NOT create fake jobs, fake companies, fake dates, fake degrees, or fake job responsibilities.
+2. REWORD, REFRAME, AND QUANTIFY ONLY: You are hired to reword, rephrase, sharpen action verbs, improve readability, and quantify candidate impact based strictly on existing resume context.
+3. DO NOT FABRICATE SKILLS/TOOLS: Only weave in missing keywords for skills, libraries, or tools that are directly mentioned in or plausibly supported by the candidate's actual resume.
+4. NO DISHONEST CLAIMS: Candidates must never lie or misrepresent their work history on their resume.
+5. Return ONLY a single valid JSON object. No extra prose."""
 
 
-OPTIMIZE_PROMPT = """Rewrite this resume to maximize alignment with the job description below.
+OPTIMIZE_PROMPT = """Rewrite this resume to maximize alignment with the job description below while strictly maintaining factual truthfulness.
 
 JOB TITLE: {job_title}
 
@@ -177,24 +178,25 @@ CURRENT RESUME:
 AGGRESSIVE MODE: {aggressive}
 
 Guidelines:
-- Preserve all factual claims (companies, dates, degrees). Do NOT invent fake experience.
-- Rewrite bullets with strong action verbs and measurable impact where supported by resume context.
-- Naturally weave in missing keywords/skills from the JD where the candidate plausibly has them.
-- Keep formatting ATS-friendly: plain text, no tables, no columns.
+- ABSOLUTE RULE: Preserve all factual claims (companies, dates, degrees, roles). Do NOT invent fake experience or credentials.
+- Reword existing bullets with strong action verbs and measurable impact supported by the candidate's actual experience.
+- Naturally reframe and weave in relevant keywords from the JD where the candidate's background plausibly aligns.
+- Keep formatting ATS-friendly: plain text, clear headings, no tables, no columns.
 - Sections: SUMMARY, SKILLS, EXPERIENCE, EDUCATION, PROJECTS.
-- Under EXPERIENCE, each role: "Job Title | Company | Dates" then "- " bullets.
+- Under EXPERIENCE, each role: "Job Title | Company | Dates" followed by "- " bullets.
 
 Return ONLY a JSON object:
 {{
-  "optimized_resume": "<full plain-text resume, \\n line breaks>",
+  "optimized_resume": "<full plain-text resume with \\n line breaks>",
   "predicted_ats_score": <integer 0-100>,
-  "changes_summary": [<string>]
-}}"""""
+  "changes_summary": [<string list of factual improvements made>]
+}}"""
 
 
 COVER_SYSTEM = """You are an elite cover letter writer.
 Write personalized, professional cover letters that feel human, specific, and confident.
-Never fabricate — only reference facts from the resume. Return a single JSON object. No extra prose."""
+STRICT RULE: Never fabricate or invent claims — only reference verified facts from the candidate's uploaded resume. Return a single JSON object. No extra prose."""
+
 
 COVER_PROMPT = """Write a tailored cover letter for the candidate targeting this role.
 
@@ -211,7 +213,7 @@ Guidelines:
 - Middle paragraphs weave 2-3 specific accomplishments from the resume, mapped to the job's needs.
 - Close with a confident call-to-action.
 - Warm, professional tone. First person. No cliches. No bullet lists.
-- Do NOT invent facts. Only use the resume.
+- STRICT RULE: Do NOT invent fake facts or claims. Only use context from the uploaded resume.
 
 Return ONLY:
 {{
@@ -221,9 +223,10 @@ Return ONLY:
 
 REWRITE_BULLET_SYSTEM = """You are an expert resume editor and career strategist.
 Your job is to rewrite a single bullet point according to a specific target instruction.
-Always maintain factual context, avoid buzzwords, and return a single valid JSON object containing the key 'rewritten_bullet'. No prose or markdown wrappers."""
+CRITICAL DIRECTIVE: Do NOT invent fake experience, fake tools, or false claims. Maintain factual context and reword existing candidate experience with precision. Return a single valid JSON object containing 'rewritten_bullet'."""
 
-REWRITE_BULLET_PROMPT = """Rewrite the bullet point below following this specific instruction.
+
+REWRITE_BULLET_PROMPT = """Rewrite the bullet point below following this specific instruction while maintaining 100% factual accuracy.
 
 CURRENT BULLET:
 {bullet_text}
@@ -235,15 +238,15 @@ JOB DESCRIPTION CONTEXT (optional reference):
 {job_description}
 
 Guidelines:
-- If instruction is 'metrics': add plausible, realistic metric estimations (percentages, scale, dollar amounts, performance gains).
+- If instruction is 'metrics': add plausible, realistic metric estimations (percentages, scale, hours saved) supported by the bullet's context.
 - If instruction is 'shorten': rewrite as a punchy, single-line action bullet under 16 words.
-- If instruction is 'leadership': emphasize ownership, cross-functional collaboration, mentorship, or driving initiatives.
-- If instruction mentions a technology or keyword (e.g. 'inject Docker'): weave that keyword naturally into the bullet.
-- Do NOT invent fake companies or roles.
+- If instruction is 'leadership': emphasize ownership, initiative, collaboration, or mentorship without inventing fake management roles.
+- If instruction mentions a technology/keyword: weave that keyword naturally into the existing experience context.
+- STRICT RULE: Do NOT invent fake companies, degrees, or unearned titles.
 - Return ONLY a JSON object:
 {{
   "rewritten_bullet": "<the new bullet point string starting with an action verb, no leading dash>"
-}}"""
+}}"""""
 
 
 # ---------------- Primary Provider: Gemini ----------------
