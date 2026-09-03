@@ -18,6 +18,7 @@ PRESET_CONFIGS = {
         "body_color": "#171717",
         "font_family": "Times-Roman",
         "header_align": "center",
+        "font_size_name": 14.5,
         "font_size_body": 9.5,
         "leading_body": 13.0,
         "margin": 0.5,
@@ -30,6 +31,7 @@ PRESET_CONFIGS = {
         "body_color": "#171717",
         "font_family": "Helvetica",
         "header_align": "left",
+        "font_size_name": 18.0,
         "font_size_body": 10.5,
         "leading_body": 14,
         "margin": 0.7,
@@ -41,6 +43,7 @@ PRESET_CONFIGS = {
         "body_color": "#0F172A",
         "font_family": "Helvetica",
         "header_align": "left",
+        "font_size_name": 18.0,
         "font_size_body": 10.0,
         "leading_body": 13.5,
         "margin": 0.6,
@@ -52,6 +55,7 @@ PRESET_CONFIGS = {
         "body_color": "#1F2937",
         "font_family": "Helvetica",
         "header_align": "left",
+        "font_size_name": 16.0,
         "font_size_body": 9.2,
         "leading_body": 12.0,
         "margin": 0.45,
@@ -63,6 +67,7 @@ PRESET_CONFIGS = {
         "body_color": "#1E293B",
         "font_family": "Times-Roman",
         "header_align": "center",
+        "font_size_name": 16.0,
         "font_size_body": 10.5,
         "leading_body": 14.5,
         "margin": 0.75,
@@ -92,6 +97,15 @@ def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def linkify_contact(str_val: str) -> str:
+    escaped = _escape(str_val)
+    def repl(m):
+        match = m.group(0)
+        href = match if match.startswith("http") else f"https://{match}"
+        return f'<a href="{href}" target="_blank" rel="noopener noreferrer" style="color:#003399;text-decoration:underline;">{match}</a>'
+    return re.sub(r'(?:https?://)?(?:www\.|github\.com/|linkedin\.com/in/)[^\s|]+', repl, escaped)
+
+
 def build_pdf(
     resume_text: str,
     template: Optional[str] = "jamaica",
@@ -114,19 +128,19 @@ def build_pdf(
     s_color = HexColor(cfg["secondary_color"])
     b_color = HexColor(cfg["body_color"])
 
+    name_sz = cfg.get("font_size_name", 15.0 if font_base == "Times-Roman" else 18.0)
     ss = getSampleStyleSheet()
     name_style = ParagraphStyle(
         "CustomName", parent=ss["Title"], fontName=font_bold,
-        fontSize=18 if cfg["font_size_body"] <= 10.0 else 20,
-        leading=22, textColor=p_color, spaceAfter=4, alignment=align_code
+        fontSize=name_sz, leading=name_sz + 3.5, textColor=p_color, spaceAfter=3, alignment=align_code
     )
     contact_style = ParagraphStyle(
         "CustomContact", parent=ss["Normal"], fontName=font_base,
-        fontSize=9.5, leading=13, textColor=s_color, spaceAfter=2, alignment=align_code
+        fontSize=9.5, leading=12.5, textColor=s_color, spaceAfter=1.5, alignment=align_code
     )
     section_style = ParagraphStyle(
         "CustomSection", parent=ss["Heading2"], fontName=font_bold,
-        fontSize=12 if cfg["font_size_body"] > 9.5 else 11.5,
+        fontSize=12 if font_base == "Times-Roman" else 11.5,
         leading=15, textColor=p_color, spaceBefore=7, spaceAfter=2
     )
     body_style = ParagraphStyle(
@@ -166,7 +180,7 @@ def build_pdf(
         if not name_line and s.upper() not in SECTION_HEADERS:
             name_line = s
             body_start = i + 1
-        elif s.upper() not in SECTION_HEADERS and len(contact_lines) < 2:
+        elif s.upper() not in SECTION_HEADERS and len(contact_lines) < 3:
             contact_lines.append(s)
             body_start = i + 1
         else:
@@ -177,17 +191,17 @@ def build_pdf(
     if is_double_header:
         if name_line:
             story.append(Paragraph(_escape(name_line), name_style))
-        story.append(HRFlowable(width="100%", thickness=1.0, color=p_color, spaceBefore=2, spaceAfter=4))
-        if contact_lines:
-            story.append(Paragraph(_escape(" | ".join(contact_lines)), contact_style))
-        story.append(HRFlowable(width="100%", thickness=1.0, color=p_color, spaceBefore=4, spaceAfter=8))
+        story.append(HRFlowable(width="100%", thickness=0.8, color=p_color, spaceBefore=2, spaceAfter=3))
+        for c_line in contact_lines:
+            story.append(Paragraph(_escape(c_line), contact_style))
+        story.append(HRFlowable(width="100%", thickness=0.8, color=p_color, spaceBefore=3, spaceAfter=8))
     else:
         if name_line:
             story.append(Paragraph(_escape(name_line), name_style))
-        if contact_lines:
-            story.append(Paragraph(_escape(" | ".join(contact_lines)), contact_style))
+        for c_line in contact_lines:
+            story.append(Paragraph(_escape(c_line), contact_style))
         if cfg["has_divider"]:
-            story.append(HRFlowable(width="100%", thickness=1.5, color=p_color, spaceBefore=2, spaceAfter=8))
+            story.append(HRFlowable(width="100%", thickness=1.2, color=p_color, spaceBefore=2, spaceAfter=8))
         else:
             story.append(Spacer(1, 4))
 
@@ -370,6 +384,7 @@ def build_html(
     is_double_header = cfg.get("header_border_double") or (cfg["header_align"] == "center" and cfg["font_family"] == "Times-Roman")
 
     html_parts = []
+    name_px = int(cfg.get("font_size_name", 15) * 1.1)
     html_parts.append(f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -384,31 +399,39 @@ def build_html(
     background-color: #ffffff;
     max-width: 800px;
     margin: 0 auto;
-    padding: 36px 32px;
+    padding: 32px 28px;
     line-height: 1.45;
+  }}
+  .name {{
+    font-size: {name_px}px;
+    font-weight: 700;
+    color: {p_color};
+    margin: 0 0 4px 0;
+    text-align: {header_align};
+    letter-spacing: 0.2px;
+    line-height: 1.2;
   }}
   .header {{
     text-align: {header_align};
-    margin-bottom: 16px;
-    { 'border-top: 1px solid ' + p_color + '; border-bottom: 1px solid ' + p_color + '; padding: 6px 0;' if is_double_header else ('border-bottom: 2px solid ' + p_color + '; padding-bottom: 10px;' if cfg['has_divider'] else '') }
-  }}
-  .name {{
-    font-size: 24px;
-    font-weight: 700;
-    color: {p_color};
-    margin: 0 0 6px 0;
-    letter-spacing: 0.5px;
+    margin-top: 4px;
+    margin-bottom: 14px;
+    { 'border-top: 1px solid ' + p_color + '; border-bottom: 1px solid ' + p_color + '; padding: 4px 0;' if is_double_header else ('border-bottom: 2px solid ' + p_color + '; padding-bottom: 10px;' if cfg['has_divider'] else '') }
   }}
   .contact {{
-    font-size: 13px;
+    font-size: 9.5pt;
     color: {s_color};
-    margin: 0;
+    margin: 1px 0;
+    line-height: 1.35;
+  }}
+  .contact a {{
+    color: #003399;
+    text-decoration: underline;
   }}
   .section-title {{
-    font-size: 15px;
+    font-size: 12pt;
     font-weight: 700;
     color: {p_color};
-    margin-top: 20px;
+    margin-top: 14px;
     margin-bottom: 4px;
     border-bottom: 1px solid {p_color};
     padding-bottom: 2px;
@@ -426,20 +449,22 @@ def build_html(
   }}
   .two-col-right {{
     font-size: {cfg['font_size_body']}pt;
-    font-style: italic;
+    font-style: normal;
     text-align: right;
   }}
   ul {{
-    margin: 4px 0 10px 18px;
+    margin: 3px 0 8px 16px;
     padding: 0;
   }}
   li {{
     margin-bottom: 3px;
     font-size: {cfg['font_size_body']}pt;
+    line-height: 1.35;
   }}
   p {{
     font-size: {cfg['font_size_body']}pt;
-    margin: 4px 0;
+    margin: 3px 0;
+    line-height: 1.35;
   }}
   @media print {{
     body {{ padding: 0; max-width: 100%; }}
@@ -450,19 +475,12 @@ def build_html(
 """)
 
     if name_line or contact_lines:
-        if is_double_header:
-            if name_line:
-                html_parts.append(f'  <h1 class="name" style="text-align:center">{_escape(name_line)}</h1>')
+        if name_line:
+            html_parts.append(f'  <h1 class="name">{_escape(name_line)}</h1>')
+        if contact_lines:
             html_parts.append('<div class="header">')
-            if contact_lines:
-                html_parts.append(f'  <p class="contact">{_escape(" | ".join(contact_lines))}</p>')
-            html_parts.append('</div>')
-        else:
-            html_parts.append('<div class="header">')
-            if name_line:
-                html_parts.append(f'  <h1 class="name">{_escape(name_line)}</h1>')
-            if contact_lines:
-                html_parts.append(f'  <p class="contact">{_escape(" | ".join(contact_lines))}</p>')
+            for c_line in contact_lines:
+                html_parts.append(f'  <p class="contact">{linkify_contact(c_line)}</p>')
             html_parts.append('</div>')
 
     current_section = ""
