@@ -105,7 +105,7 @@ function SimpleDiff({ before, after }) {
 
 export default function ResultsDashboard({
   analysis, optimization, originalResumeText, coverLetter,
-  onOptimize, onGenerateCoverLetter, optimizing, coverLoading,
+  onOptimize, onAutoOptimize, onGenerateCoverLetter, optimizing, autoOptimizing, coverLoading,
 }) {
   const { token, user } = useAuth();
   const [tab, setTab] = useState("overview");
@@ -216,20 +216,25 @@ export default function ResultsDashboard({
                 <BreakdownCard label="Experience"    value={breakdown.experience_match} testId={RESUME.breakdownExperience} />
               </div>
 
-              {!optimization && (
-                <div className="mt-8 p-5 border border-[#262626] rounded-lg bg-[#0F0F0F] flex items-center justify-between gap-4 flex-wrap">
-                  <div>
-                    <div className="label-caps mb-1">Next step</div>
-                    <div className="text-[#F5F5F5] font-medium">Rewrite this resume to hit 95+</div>
-                    <div className="text-xs text-neutral-500 mt-1">Live rewrite with real-time keyword injection.</div>
-                  </div>
-                  <Button onClick={onOptimize} disabled={optimizing}
-                    className="bg-[#2563EB] text-white hover:bg-[#1D4ED8] rounded-full px-6">
+              <div className="mt-8 p-5 border border-[#262626] rounded-lg bg-[#0F0F0F] flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                  <div className="label-caps mb-1">Next step</div>
+                  <div className="text-[#F5F5F5] font-medium">Iterative AI Optimization targeting 90+ ATS score</div>
+                  <div className="text-xs text-neutral-500 mt-1">Multi-pass keyword injection and bullet refinement until 90+ score is hit.</div>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button onClick={onOptimize} disabled={optimizing || autoOptimizing}
+                    className="bg-[#2563EB] text-white hover:bg-[#1D4ED8] rounded-full px-5">
                     <Sparkles className="w-4 h-4 mr-2" />
-                    {optimizing ? "Optimizing..." : "Optimize resume"}
+                    {optimizing ? "Optimizing..." : "Standard Rewrite"}
+                  </Button>
+                  <Button onClick={onAutoOptimize} disabled={optimizing || autoOptimizing}
+                    className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-full px-5 shadow-lg border border-amber-400/30 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-200 fill-amber-200" />
+                    {autoOptimizing ? "Boosting to 90+..." : "Boost to 90+ ATS"}
                   </Button>
                 </div>
-              )}
+              </div>
             </div>
           </div>
         </TabsContent>
@@ -311,24 +316,46 @@ export default function ResultsDashboard({
           {!optimization ? (
             <div className="card-solid p-12 text-center">
               <div className="label-caps mb-3">Not generated yet</div>
-              <div className="font-display text-xl text-[#F5F5F5] mb-2">Click Optimize to rewrite this resume</div>
-              <div className="text-sm text-neutral-500 mb-6">The AI will inject relevant keywords, tighten bullets, and target 95+ ATS.</div>
-              <Button onClick={onOptimize} disabled={optimizing} className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-full px-6">
-                <Sparkles className="w-4 h-4 mr-2" />
-                {optimizing ? "Optimizing..." : "Optimize now"}
-              </Button>
+              <div className="font-display text-xl text-[#F5F5F5] mb-2">Click Optimize or Boost to rewrite this resume</div>
+              <div className="text-sm text-neutral-500 mb-6">The AI will inject relevant keywords, tighten bullets, and target 90+ ATS.</div>
+              <div className="flex justify-center gap-3">
+                <Button onClick={onOptimize} disabled={optimizing || autoOptimizing} className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-full px-6">
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  {optimizing ? "Optimizing..." : "Standard Optimize"}
+                </Button>
+                <Button onClick={onAutoOptimize} disabled={optimizing || autoOptimizing} className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-full px-6 shadow-lg border border-amber-400/30">
+                  <Sparkles className="w-4 h-4 mr-2 text-amber-200 fill-amber-200" />
+                  {autoOptimizing ? "Boosting to 90+..." : "Boost to 90+ ATS"}
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="card-solid p-6 md:p-8">
               <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
                 <div>
-                  <div className="label-caps mb-1">Optimized resume</div>
+                  <div className="label-caps mb-1 flex items-center gap-2">
+                    <span>Optimized resume</span>
+                    {optimization.auto_boosted && (
+                      <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px]">
+                        ⚡ 90+ Auto-Boosted
+                      </span>
+                    )}
+                  </div>
                   <div className="text-sm text-neutral-400">
                     Predicted ATS: <span className="text-[#4ADE80] font-medium">{optimization.predicted_ats_score ?? "—"}</span>
                   </div>
                 </div>
-                <div className="flex gap-2 items-center">
-                  <div className="flex bg-[#0A0A0A] border border-[#262626] rounded-full p-1 mr-2">
+                <div className="flex gap-2 items-center flex-wrap">
+                  <Button
+                    onClick={onAutoOptimize}
+                    disabled={optimizing || autoOptimizing}
+                    className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-semibold rounded-full px-4 h-9 shadow border border-amber-400/30 flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-200 fill-amber-200" />
+                    {autoOptimizing ? "Re-Boosting..." : "Re-Optimize to 90+"}
+                  </Button>
+
+                  <div className="flex bg-[#0A0A0A] border border-[#262626] rounded-full p-1">
                     <button
                       type="button"
                       onClick={() => setEditorMode("interactive")}

@@ -136,6 +136,48 @@ export default function Dashboard() {
     }
   };
 
+  const runAutoOptimize = async () => {
+    let currentAnalysis = analysis;
+    if (!currentAnalysis?.analysis_id) {
+      if (!canAnalyze) {
+        toast.error("Upload a resume and add a job description first.");
+        return;
+      }
+      currentAnalysis = await runAnalyze();
+      if (!currentAnalysis?.analysis_id) return;
+    }
+    setLoading("auto_optimize");
+    setStreamText("");
+    try {
+      let done = null;
+      await streamPost(
+        `${API}/auto-optimize-stream`,
+        { analysis_id: currentAnalysis.analysis_id, target_score: 90 },
+        authHeaders,
+        (ev) => {
+          if (ev.type === "delta") setStreamText((prev) => prev + ev.text);
+          else if (ev.type === "done") done = ev;
+          else if (ev.type === "error") throw new Error(ev.error);
+        },
+      );
+      if (done) {
+        setOptimization({
+          optimized_resume: done.result?.optimized_resume,
+          predicted_ats_score: done.result?.predicted_ats_score,
+          changes_summary: done.result?.changes_summary,
+          aggressive: true,
+          auto_boosted: true,
+        });
+        setOriginalText(done.original_resume_text || "");
+        toast.success(`🚀 Reached ${done.result?.predicted_ats_score || 90}+ ATS Score!`);
+      }
+    } catch (e) {
+      toast.error(e?.message || "Auto-optimization failed");
+    } finally {
+      setLoading(null);
+    }
+  };
+
   const runCoverLetter = async () => {
     if (!analysis?.analysis_id) {
       toast.error("Run an analysis first to generate a cover letter.");
@@ -256,9 +298,9 @@ export default function Dashboard() {
 
         <section className="mt-8 card-solid p-5 flex items-center justify-between gap-4 flex-wrap">
           <div className="text-xs text-neutral-500">
-            {canAnalyze ? "Ready to run analysis." : "Upload a resume and paste a job description to enable actions."}
+            {canAnalyze ? "Ready to run analysis or auto-optimize." : "Upload a resume and paste a job description to enable actions."}
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-3 flex-wrap">
             <Button
               data-testid={RESUME.analyzeBtn}
               onClick={runAnalyze}
@@ -278,6 +320,14 @@ export default function Dashboard() {
               <Sparkles className="w-4 h-4 mr-2" strokeWidth={2} />
               Optimize Resume
             </Button>
+            <Button
+              onClick={runAutoOptimize}
+              disabled={!canAnalyze || !!loading}
+              className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-full px-6 h-11 shadow-lg border border-amber-400/30 flex items-center gap-2"
+            >
+              <Sparkles className="w-4 h-4 text-amber-200 fill-amber-200" />
+              <span>Boost to 90+ ATS</span>
+            </Button>
           </div>
         </section>
 
@@ -288,8 +338,10 @@ export default function Dashboard() {
             originalResumeText={originalText}
             coverLetter={coverLetter}
             onOptimize={runOptimize}
+            onAutoOptimize={runAutoOptimize}
             onGenerateCoverLetter={runCoverLetter}
             optimizing={loading === "optimize"}
+            autoOptimizing={loading === "auto_optimize"}
             coverLoading={loading === "cover"}
           />
         )}

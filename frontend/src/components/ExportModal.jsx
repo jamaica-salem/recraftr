@@ -26,6 +26,13 @@ import { generateResumeHtmlPreview } from "@/lib/resumeTemplateHtml";
 
 const PRESET_THEMES = [
   {
+    id: "jamaica",
+    name: "Jamaica Academic",
+    desc: "Centered serif header, double horizontal divider rules & 2-column entries",
+    badge: "Featured",
+    color: "#0A0A0A",
+  },
+  {
     id: "classic",
     name: "Classic Minimal",
     desc: "Standard black/gray ATS layout",
@@ -56,6 +63,7 @@ const PRESET_THEMES = [
 ];
 
 const COLOR_SWATCHES = [
+  { id: "black", label: "Classic Black", value: "#0A0A0A" },
   { id: "navy", label: "Navy Blue", value: "#1E3A8A" },
   { id: "charcoal", label: "Charcoal", value: "#111827" },
   { id: "emerald", label: "Emerald", value: "#065F46" },
@@ -76,10 +84,10 @@ export default function ExportModal({
   token = "",
   backendUrl = "",
 }) {
-  const [template, setTemplate] = useState("modern");
-  const [primaryColor, setPrimaryColor] = useState("#1E3A8A");
-  const [fontFamily, setFontFamily] = useState("Helvetica");
-  const [headerAlign, setHeaderAlign] = useState("left");
+  const [template, setTemplate] = useState("jamaica");
+  const [primaryColor, setPrimaryColor] = useState("#0A0A0A");
+  const [fontFamily, setFontFamily] = useState("Times-Roman");
+  const [headerAlign, setHeaderAlign] = useState("center");
   const [exportFormat, setExportFormat] = useState("pdf");
   const [zoomScale, setZoomScale] = useState(0.85); // 0.75, 0.85, 1.0
   const [downloading, setDownloading] = useState(false);
@@ -247,8 +255,15 @@ export default function ExportModal({
                       type="button"
                       onClick={() => {
                         setTemplate(th.id);
-                        if (th.id === "elegant") setFontFamily("Times-Roman");
-                        if (th.id === "classic") setPrimaryColor("#0A0A0A");
+                        if (th.id === "jamaica") {
+                          setFontFamily("Times-Roman");
+                          setPrimaryColor("#0A0A0A");
+                          setHeaderAlign("center");
+                        } else if (th.id === "elegant") {
+                          setFontFamily("Times-Roman");
+                        } else if (th.id === "classic") {
+                          setPrimaryColor("#0A0A0A");
+                        }
                       }}
                       className={`relative p-2.5 rounded-lg border text-left transition-all ${
                         active

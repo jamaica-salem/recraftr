@@ -4,6 +4,7 @@ import { RESUME } from "@/constants/testIds";
 const MESSAGES = {
   analyze: ["Parsing resume...", "Analyzing job match...", "Scoring against ATS..."],
   optimize: ["Rewriting bullets...", "Injecting keywords...", "Polishing for ATS 95+..."],
+  auto_optimize: ["Evaluating current ATS score...", "Running iterative keyword boost...", "Refining bullets targeting 90+ ATS...", "Finalizing optimal resume..."],
   cover: ["Drafting your cover letter...", "Weaving in your best wins...", "Finalizing the closing line..."],
 };
 
