@@ -1,4 +1,4 @@
-"""Deterministic analysis engine for APPLYR.
+"""Deterministic analysis engine for Recraftr.
 
 Provides fast, local Python keyword matching, section parsing, metric computation,
 and initial gap analysis without LLM calls.

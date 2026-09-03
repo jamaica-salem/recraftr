@@ -9,7 +9,7 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 import uuid
 
-JWT_SECRET = os.environ['JWT_SECRET']
+JWT_SECRET = os.environ.get('JWT_SECRET', 'recraftr_jwt_secret_key_2026')
 JWT_ALGO = "HS256"
 JWT_EXPIRY_DAYS = 30
 

@@ -94,13 +94,21 @@ def _resolve_config(template_name: Optional[str] = "jamaica", custom_styles: Opt
 
 
 def _escape(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    if not text:
+        return ""
+    # Strip dangerous HTML tags & attributes before entity escaping
+    clean = re.sub(r'<\s*(script|iframe|object|embed|style|meta|link)[^>]*>', '', str(text), flags=re.IGNORECASE)
+    clean = re.sub(r'on\w+\s*=', 'on_disabled=', clean, flags=re.IGNORECASE)
+    clean = re.sub(r'javascript\s*:', 'blocked:', clean, flags=re.IGNORECASE)
+    return clean.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#x27;")
 
 
 def linkify_contact(str_val: str) -> str:
     escaped = _escape(str_val)
     def repl(m):
         match = m.group(0)
+        if "javascript:" in match.lower() or "data:" in match.lower():
+            return match
         href = match if match.startswith("http") else f"https://{match}"
         return f'<a href="{href}" target="_blank" rel="noopener noreferrer" style="color:#003399;text-decoration:underline;">{match}</a>'
     return re.sub(r'(?:https?://)?(?:www\.|github\.com/|linkedin\.com/in/)[^\s|]+', repl, escaped)
