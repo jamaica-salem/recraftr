@@ -20,8 +20,8 @@ import {
 
 function scoreColor(score) {
   if (score >= 80) return { hex: "#16A34A", label: "Strong", ring: "text-[#22C55E]" };
-  if (score >= 60) return { hex: "#D97706", label: "Fair",   ring: "text-[#F59E0B]" };
-  return                { hex: "#DC2626", label: "Weak",   ring: "text-[#EF4444]" };
+  if (score >= 60) return { hex: "#D97706", label: "Fair", ring: "text-[#F59E0B]" };
+  return { hex: "#DC2626", label: "Weak", ring: "text-[#EF4444]" };
 }
 
 function ScoreRing({ value }) {
@@ -65,10 +65,10 @@ function BreakdownCard({ label, value, testId }) {
 
 function MatchBadge({ match }) {
   const cfg = {
-    Exact:    { icon: CheckCircle2, cls: "bg-[#0B2818] text-[#4ADE80] border-[#16A34A]/40" },
+    Exact: { icon: CheckCircle2, cls: "bg-[#0B2818] text-[#4ADE80] border-[#16A34A]/40" },
     Semantic: { icon: CheckCircle2, cls: "bg-[#0F1B2E] text-[#60A5FA] border-[#2563EB]/40" },
-    Partial:  { icon: AlertCircle,  cls: "bg-[#2A1B05] text-[#FBBF24] border-[#D97706]/40" },
-    Missing:  { icon: Circle,       cls: "bg-[#2A0B0B] text-[#F87171] border-[#DC2626]/40" },
+    Partial: { icon: AlertCircle, cls: "bg-[#2A1B05] text-[#FBBF24] border-[#D97706]/40" },
+    Missing: { icon: Circle, cls: "bg-[#2A0B0B] text-[#F87171] border-[#DC2626]/40" },
   };
   const c = cfg[match] || cfg.Missing;
   const Icon = c.icon;
@@ -86,7 +86,7 @@ function SimpleDiff({ before, after }) {
     const setA = new Set(a.map((s) => s.trim()));
     const setB = new Set(b.map((s) => s.trim()));
     return {
-      left:  a.map((line) => ({ text: line, tag: setB.has(line.trim()) ? "eq" : "del" })),
+      left: a.map((line) => ({ text: line, tag: setB.has(line.trim()) ? "eq" : "del" })),
       right: b.map((line) => ({ text: line, tag: setA.has(line.trim()) ? "eq" : "add" })),
     };
   }, [before, after]);
@@ -222,13 +222,13 @@ export default function ResultsDashboard({
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="bg-transparent p-0 h-auto border-b border-[#262626] w-full justify-start rounded-none gap-1 overflow-x-auto">
           {[
-            ["overview",     "Overview",         RESUME.tabOverview],
-            ["gap",          "Gap Analysis",     RESUME.tabGap],
-            ["missing",      "Missing Skills",   RESUME.tabMissing],
-            ["improvements", "Improvements",     RESUME.tabImprovements],
-            ["optimized",    "Optimized Resume", RESUME.tabOptimized],
-            ["cover",        "Cover Letter",     RESUME.tabCoverLetter],
-            ["diff",         "Before vs After",  RESUME.tabDiff],
+            ["overview", "Overview", RESUME.tabOverview],
+            ["gap", "Gap Analysis", RESUME.tabGap],
+            ["missing", "Missing Skills", RESUME.tabMissing],
+            ["improvements", "Improvements", RESUME.tabImprovements],
+            ["optimized", "Optimized Resume", RESUME.tabOptimized],
+            ["cover", "Cover Letter", RESUME.tabCoverLetter],
+            ["diff", "Before vs After", RESUME.tabDiff],
           ].map(([v, label, tid]) => (
             <TabsTrigger
               key={v} value={v} data-testid={tid}
@@ -247,19 +247,18 @@ export default function ResultsDashboard({
               <div className="flex items-center gap-3 mb-2">
                 <div className="label-caps">ATS Match Score</div>
                 {analysis?.score_category && (
-                  <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
-                    analysis.score_category === "Strong" ? "bg-[#0B2818] text-[#4ADE80] border-[#16A34A]/40"
-                    : analysis.score_category === "Moderate" ? "bg-[#2A1B05] text-[#FBBF24] border-[#D97706]/40"
-                    : "bg-[#2A0B0B] text-[#F87171] border-[#DC2626]/40"
-                  }`}>
+                  <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${analysis.score_category === "Strong" ? "bg-[#0B2818] text-[#4ADE80] border-[#16A34A]/40"
+                      : analysis.score_category === "Moderate" ? "bg-[#2A1B05] text-[#FBBF24] border-[#D97706]/40"
+                        : "bg-[#2A0B0B] text-[#F87171] border-[#DC2626]/40"
+                    }`}>
                     {analysis.score_category} Match
                   </span>
                 )}
               </div>
               <div className="font-display text-2xl text-[#F5F5F5] mb-1">
                 {(analysis?.ats_score ?? 0) >= 85 ? "Strong alignment with the role."
-                 : (analysis?.ats_score ?? 0) >= 60 ? "Moderate match — targeted optimization will lift this to 90+."
-                 : "Weak match — optimization will make the biggest difference here."}
+                  : (analysis?.ats_score ?? 0) >= 60 ? "Moderate match — targeted optimization will lift this to 90+."
+                    : "Weak match — optimization will make the biggest difference here."}
               </div>
               <p className="text-sm text-neutral-400 max-w-xl">
                 Evaluated with weighted scoring rules (required must-haves = weight 3, preferred = weight 1, standard = weight 2).
@@ -267,7 +266,7 @@ export default function ResultsDashboard({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
                 <BreakdownCard label="Keyword Match" value={breakdown.keyword_match} testId={RESUME.breakdownKeyword} />
                 <BreakdownCard label="Skills Match" value={breakdown.skills_match} testId={RESUME.breakdownSkills} />
-                <BreakdownCard label="Experience"    value={breakdown.experience_match} testId={RESUME.breakdownExperience} />
+                <BreakdownCard label="Experience" value={breakdown.experience_match} testId={RESUME.breakdownExperience} />
               </div>
 
               <div className="mt-8 p-5 border border-[#262626] rounded-lg bg-[#0F0F0F] flex items-center justify-between gap-4 flex-wrap">
@@ -461,7 +460,7 @@ export default function ResultsDashboard({
                     onClick={() => onReEvaluateATS && onReEvaluateATS(activeResumeText)}
                     disabled={optimizing || autoOptimizing || reEvaluating}
                     variant="outline"
-                    className="bg-[#0A2C1A] border-[#16A34A]/40 text-[#4ADE80] hover:bg-[#16A34A] hover:text-white rounded-full text-xs px-4 h-9 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                    className="bg-[#0A2C1A] border-[#16A34A]/40 text-[#4ADE80] hover:bg-[#16A34A] hover:text-white rounded-full text-xs font-semibold px-4 h-9 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
                   >
                     <BarChart2 className="w-3.5 h-3.5" />
                     <span>{reEvaluating ? "Evaluating Real ATS..." : "Check Real ATS Score"}</span>
@@ -470,19 +469,19 @@ export default function ResultsDashboard({
                   <Button
                     onClick={onAutoOptimize}
                     disabled={optimizing || autoOptimizing || reEvaluating}
-                    className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-semibold rounded-full px-4 h-9 shadow border border-amber-400/30 flex items-center gap-1.5"
+                    className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-semibold rounded-full px-4 h-9 shadow border border-amber-400/30 flex items-center gap-1.5 cursor-pointer"
                   >
                     <Zap className="w-3.5 h-3.5 text-white fill-white" />
-                    {autoOptimizing ? "Re-Boosting..." : "Re-Optimize to 90+"}
+                    <span>{autoOptimizing ? "Re-Boosting..." : "Re-Optimize to 90+"}</span>
                   </Button>
 
-                  <div className="flex bg-[#0A0A0A] border border-[#262626] rounded-full p-1">
+                  <div className="flex bg-[#0A0A0A] border border-[#262626] rounded-full p-1 h-9 items-center">
                     <button
                       type="button"
                       onClick={() => setEditorMode("interactive")}
-                      className={`px-3 py-1 text-xs rounded-full flex items-center gap-1.5 transition-all ${
+                      className={`h-7 px-3 text-xs rounded-full flex items-center gap-1.5 font-semibold transition-all ${
                         editorMode === "interactive"
-                          ? "bg-[#2563EB] text-white font-medium shadow"
+                          ? "bg-[#2563EB] text-white shadow"
                           : "text-neutral-400 hover:text-white"
                       }`}
                     >
@@ -492,9 +491,9 @@ export default function ResultsDashboard({
                     <button
                       type="button"
                       onClick={() => setEditorMode("raw")}
-                      className={`px-3 py-1 text-xs rounded-full flex items-center gap-1.5 transition-all ${
+                      className={`h-7 px-3 text-xs rounded-full flex items-center gap-1.5 font-semibold transition-all ${
                         editorMode === "raw"
-                          ? "bg-[#2563EB] text-white font-medium shadow"
+                          ? "bg-[#2563EB] text-white shadow"
                           : "text-neutral-400 hover:text-white"
                       }`}
                     >
@@ -507,19 +506,29 @@ export default function ResultsDashboard({
                     onClick={openSaveModal}
                     disabled={savingToTracker}
                     variant="outline"
-                    className="bg-transparent border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/20 hover:text-white rounded-full cursor-pointer"
+                    className="bg-transparent border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/20 hover:text-white text-xs font-semibold rounded-full px-4 h-9 shadow flex items-center gap-1.5 cursor-pointer"
                   >
-                    <BookmarkPlus className="w-4 h-4 mr-2 text-indigo-400" />
-                    Save to Tracker
+                    <BookmarkPlus className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Save to Tracker</span>
                   </Button>
-                  <Button data-testid={RESUME.copyResumeBtn} variant="outline"
+
+                  <Button
+                    data-testid={RESUME.copyResumeBtn}
+                    variant="outline"
                     onClick={() => copyText(activeResumeText, "Optimized resume")}
-                    className="bg-transparent border-[#262626] text-neutral-200 hover:bg-[#1F1F1F] hover:text-white rounded-full">
-                    <Copy className="w-4 h-4 mr-2" /> Copy
+                    className="bg-transparent border-[#262626] text-neutral-200 hover:bg-[#1F1F1F] hover:text-white text-xs font-semibold rounded-full px-4 h-9 shadow flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy</span>
                   </Button>
-                  <Button data-testid={RESUME.downloadPdfBtn} onClick={downloadResumePdf}
-                    className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-full">
-                    <Download className="w-4 h-4 mr-2" /> Export PDF/HTML
+
+                  <Button
+                    data-testid={RESUME.downloadPdfBtn}
+                    onClick={downloadResumePdf}
+                    className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold rounded-full px-4 h-9 shadow flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export PDF/HTML</span>
                   </Button>
                 </div>
               </div>
