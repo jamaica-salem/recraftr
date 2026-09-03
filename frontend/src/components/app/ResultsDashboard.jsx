@@ -8,6 +8,15 @@ import { toast } from "sonner";
 import { Copy, Download, Sparkles, CheckCircle2, Circle, AlertCircle, Mail, Code, Sparkle, Kanban, BookmarkPlus, BarChart2 } from "lucide-react";
 import ExportModal from "@/components/ExportModal";
 import InteractiveBulletEditor from "@/components/app/InteractiveBulletEditor";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 function scoreColor(score) {
   if (score >= 80) return { hex: "#16A34A", label: "Strong", ring: "text-[#22C55E]" };
@@ -104,6 +113,8 @@ function SimpleDiff({ before, after }) {
   );
 }
 
+
+
 export default function ResultsDashboard({
   analysis, optimization, originalResumeText, coverLetter, jobTitle, jobDesc,
   onOptimize, onAutoOptimize, onGenerateCoverLetter, onReEvaluateATS,
@@ -114,6 +125,14 @@ export default function ResultsDashboard({
   const [exportModal, setExportModal] = useState({ open: false, type: "resume" });
   const [editorMode, setEditorMode] = useState("interactive");
   const [currentResumeText, setCurrentResumeText] = useState("");
+
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveForm, setSaveForm] = useState({
+    company_name: "",
+    job_title: "",
+    status: "applied",
+  });
+  const [savingToTracker, setSavingToTracker] = useState(false);
 
   React.useEffect(() => {
     if (optimization?.optimized_resume) {
@@ -136,18 +155,36 @@ export default function ResultsDashboard({
     } catch { toast.error("Copy failed"); }
   };
 
-  const [savingToTracker, setSavingToTracker] = useState(false);
+  const openSaveModal = () => {
+    const initialTitle = jobTitle || analysis?.job_title || "Target Role";
+    setSaveForm({
+      company_name: "",
+      job_title: initialTitle,
+      status: "applied",
+    });
+    setSaveModalOpen(true);
+  };
 
-  const saveToTracker = async () => {
+  const submitSaveToTracker = async (e) => {
+    if (e) e.preventDefault();
+    if (!saveForm.company_name.trim()) {
+      toast.error("Please enter a company name");
+      return;
+    }
+    if (!saveForm.job_title.trim()) {
+      toast.error("Please enter a job title");
+      return;
+    }
     try {
       setSavingToTracker(true);
-      const targetJobTitle = analysis?.job_title || jobTitle || "Target Role";
+      const targetJobTitle = saveForm.job_title.trim();
+      const targetCompany = saveForm.company_name.trim();
       const targetJobDesc = analysis?.job_description || jobDesc || "";
       const payload = {
         job_title: targetJobTitle,
-        company_name: "Target Company",
-        status: "applied",
-        ats_score: optimization?.predicted_ats_score || analysis?.ats_score,
+        company_name: targetCompany,
+        status: saveForm.status || "applied",
+        ats_score: optimization?.predicted_ats_score || analysis?.ats_score || 0,
         job_description: targetJobDesc,
         optimized_resume: activeResumeText,
         cover_letter: coverLetter || "",
@@ -161,9 +198,10 @@ export default function ResultsDashboard({
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("Failed to save application");
-      toast.success("Package saved to Job Tracker!");
-    } catch {
-      toast.error("Could not save to tracker");
+      toast.success(`Saved application for ${targetCompany} to Job Tracker!`);
+      setSaveModalOpen(false);
+    } catch (err) {
+      toast.error(err?.message || "Could not save to tracker");
     } finally {
       setSavingToTracker(false);
     }
@@ -466,13 +504,13 @@ export default function ResultsDashboard({
                   </div>
 
                   <Button
-                    onClick={saveToTracker}
+                    onClick={openSaveModal}
                     disabled={savingToTracker}
                     variant="outline"
-                    className="bg-transparent border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/20 hover:text-white rounded-full"
+                    className="bg-transparent border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/20 hover:text-white rounded-full cursor-pointer"
                   >
                     <BookmarkPlus className="w-4 h-4 mr-2 text-indigo-400" />
-                    {savingToTracker ? "Saving..." : "Save to Tracker"}
+                    Save to Tracker
                   </Button>
                   <Button data-testid={RESUME.copyResumeBtn} variant="outline"
                     onClick={() => copyText(activeResumeText, "Optimized resume")}
@@ -481,21 +519,20 @@ export default function ResultsDashboard({
                   </Button>
                   <Button data-testid={RESUME.downloadPdfBtn} onClick={downloadResumePdf}
                     className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-full">
-                    <Download className="w-4 h-4 mr-2" /> Export
+                    <Download className="w-4 h-4 mr-2" /> Export PDF/HTML
                   </Button>
                 </div>
               </div>
 
+              {/* Editor Mode: Interactive vs Plain Text */}
               {editorMode === "interactive" ? (
                 <InteractiveBulletEditor
-                  resumeText={activeResumeText}
-                  onUpdateResumeText={setCurrentResumeText}
+                  initialResumeText={optimization.optimized_resume}
                   jobDescription={analysis?.job_description || ""}
-                  authHeaders={{ Authorization: `Bearer ${token}` }}
+                  onChange={(newText) => setCurrentResumeText(newText)}
                 />
               ) : (
-                <pre data-testid={RESUME.optimizedResume}
-                  className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-neutral-200 bg-[#0A0A0A] border border-[#1F1F1F] rounded-md p-6 max-h-[70vh] overflow-auto">
+                <pre className="bg-[#0A0A0A] border border-[#1F1F1F] rounded-md p-6 font-mono text-xs text-neutral-200 whitespace-pre-wrap leading-relaxed max-h-[600px] overflow-y-auto">
                   {activeResumeText}
                 </pre>
               )}
@@ -539,7 +576,7 @@ export default function ResultsDashboard({
               <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
                 <div>
                   <div className="label-caps mb-1">Cover letter</div>
-                  <div className="text-sm text-neutral-400">Tailored for <span className="text-white">{analysis?.job_title || "the role"}</span></div>
+                  <div className="text-sm text-neutral-400">Tailored for <span className="text-white">{jobTitle || analysis?.job_title || "the role"}</span></div>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={onGenerateCoverLetter} disabled={coverLoading}
@@ -577,7 +614,7 @@ export default function ResultsDashboard({
 
         {/* Diff */}
         <TabsContent value="diff" className="mt-8">
-          {!optimization ? (
+          {!originalResumeText || !optimization?.optimized_resume ? (
             <div className="card-solid p-12 text-center text-neutral-500">
               Optimize the resume first to see a before/after comparison.
             </div>
@@ -587,6 +624,7 @@ export default function ResultsDashboard({
         </TabsContent>
       </Tabs>
 
+      {/* Export Modal */}
       <ExportModal
         open={exportModal.open}
         onClose={() => setExportModal({ open: false, type: "resume" })}
@@ -595,11 +633,97 @@ export default function ResultsDashboard({
         resumeText={activeResumeText}
         coverLetterText={coverLetter || ""}
         candidateName={user?.name || ""}
-        jobTitle={analysis?.job_title || ""}
+        jobTitle={jobTitle || analysis?.job_title || ""}
         filename={exportModal.type === "cover_letter" ? "cover-letter" : "resume-optimized"}
         token={token}
         backendUrl={API.replace(/\/api$/, "")}
       />
+
+      {/* Save Package to Job Tracker Prompt Modal */}
+      <Dialog open={saveModalOpen} onOpenChange={setSaveModalOpen}>
+        <DialogContent className="sm:max-w-md bg-[#0F0F0F] border-[#262626] text-white rounded-xl shadow-2xl p-6">
+          <DialogHeader className="pb-3 border-b border-[#262626]">
+            <DialogTitle className="text-xl font-bold text-[#F5F5F5] flex items-center gap-2">
+              <BookmarkPlus className="w-5 h-5 text-[#2563EB]" />
+              Save Application to Job Tracker
+            </DialogTitle>
+            <DialogDescription className="text-neutral-400 text-xs mt-1">
+              Specify the company name and confirm target details to save this optimized package to your job search pipeline.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={submitSaveToTracker} className="space-y-4 my-2">
+            <div>
+              <label className="block text-xs font-semibold label-caps text-neutral-300 mb-1.5">
+                Company Name <span className="text-red-400">*</span>
+              </label>
+              <Input
+                required
+                autoFocus
+                placeholder="e.g. Google, Stripe, OpenAI, Microsoft..."
+                value={saveForm.company_name}
+                onChange={(e) => setSaveForm((prev) => ({ ...prev, company_name: e.target.value }))}
+                className="bg-[#1A1A1A] border-[#333333] text-white focus:border-[#2563EB] text-sm h-10"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold label-caps text-neutral-300 mb-1.5">
+                Target Role / Job Title <span className="text-red-400">*</span>
+              </label>
+              <Input
+                required
+                placeholder="e.g. Senior Full Stack Engineer"
+                value={saveForm.job_title}
+                onChange={(e) => setSaveForm((prev) => ({ ...prev, job_title: e.target.value }))}
+                className="bg-[#1A1A1A] border-[#333333] text-white focus:border-[#2563EB] text-sm h-10"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold label-caps text-neutral-300 mb-1.5">
+                Pipeline Stage
+              </label>
+              <select
+                value={saveForm.status}
+                onChange={(e) => setSaveForm((prev) => ({ ...prev, status: e.target.value }))}
+                className="w-full h-10 rounded-md border border-[#333333] bg-[#1A1A1A] px-3 py-1 text-sm text-white focus:outline-none focus:border-[#2563EB]"
+              >
+                <option value="applied">📑 Applied</option>
+                <option value="interviewing">🎙️ Interviewing</option>
+                <option value="offer">🎉 Offer Received</option>
+                <option value="bookmarked">📌 Bookmarked / Saved</option>
+                <option value="rejected">❌ Rejected</option>
+              </select>
+            </div>
+
+            <div className="p-3 rounded-lg bg-[#141414] border border-[#262626] flex items-center justify-between text-xs">
+              <span className="text-neutral-400">Match Score to Save:</span>
+              <span className="font-bold text-[#4ADE80]">
+                {optimization?.predicted_ats_score || analysis?.ats_score || 0}% ATS Match
+              </span>
+            </div>
+
+            <DialogFooter className="mt-6 flex justify-end gap-2 pt-3 border-t border-[#262626]">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setSaveModalOpen(false)}
+                className="text-neutral-400 hover:text-white"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={savingToTracker}
+                className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium px-5 rounded-full"
+              >
+                {savingToTracker ? "Saving..." : "Save Application"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
