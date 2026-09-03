@@ -1,14 +1,17 @@
 """Security test suite for Recraftr file upload guardrails."""
 
+import os
 import pytest
 import io
 import zipfile
+import asyncio
 from file_security import (
     validate_upload_file,
     sanitize_filename,
+    quarantine_file,
     FileValidationError,
 )
-from resume_parser import parse_resume
+from resume_parser import parse_resume, parse_resume_async
 
 
 def test_filename_sanitization():
@@ -88,3 +91,24 @@ def test_docx_security_validation():
     with pytest.raises(FileValidationError) as exc:
         validate_upload_file("trojan.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", malicious_docx_buf.getvalue())
     assert "executable" in str(exc.value).lower()
+
+
+def test_quarantine_file_permissions_and_cleanup():
+    sample_data = b"%PDF-1.4 test quarantine file bytes"
+    file_path = None
+    with quarantine_file(sample_data, "test.pdf") as q_path:
+        file_path = q_path
+        assert q_path.exists()
+        # Verify 0o600 permissions (read/write only, non-executable)
+        st_mode = os.stat(q_path).st_mode
+        assert (st_mode & 0o111) == 0  # No execution permissions for user, group, or others
+    
+    # Verify file unlinked automatically upon exit
+    assert not file_path.exists()
+
+
+@pytest.mark.anyio
+async def test_process_isolated_async_parser():
+    txt_data = b"Jane Doe - Staff Software Engineer with 8 years of distributed systems experience."
+    res = await parse_resume_async("resume.txt", txt_data, timeout_seconds=5.0)
+    assert "Jane Doe" in res

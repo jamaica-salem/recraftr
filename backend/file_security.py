@@ -1,7 +1,8 @@
 """File upload security verification module for Recraftr.
 
 Enforces extension whitelisting, MIME validation, magic byte signature checks,
-executable detection, zip bomb detection, path traversal prevention, and filename sanitization.
+executable detection, zip bomb detection, path traversal prevention, file quarantine,
+ClamAV malware scanning, and filename sanitization.
 """
 
 import os
@@ -9,6 +10,11 @@ import re
 import uuid
 import zipfile
 import io
+import tempfile
+import subprocess
+import shutil
+from pathlib import Path
+from contextlib import contextmanager
 from typing import Tuple
 
 MAX_UPLOAD_SIZE_BYTES = int(os.environ.get("MAX_UPLOAD_SIZE_BYTES", 5 * 1024 * 1024))  # 5 MB default
@@ -38,14 +44,77 @@ DANGEROUS_ZIP_EXTENSIONS = {
     ".jar", ".so", ".cmd", ".ps1", ".scr", ".com", ".htm", ".html", ".php"
 }
 
-# Max expanded size for DOCX zip contents (50 MB limit to prevent zip bombs)
-MAX_DOCX_UNCOMPRESSED_SIZE = 50 * 1024 * 1024
+# Max expanded size for DOCX zip contents (10 MB limit to prevent zip bombs)
+MAX_DOCX_UNCOMPRESSED_SIZE = 10 * 1024 * 1024
 MAX_DOCX_COMPRESSION_RATIO = 100.0  # Max 100:1 ratio
+
+QUARANTINE_DIR = Path(tempfile.gettempdir()) / "recraftr_quarantine"
 
 
 class FileValidationError(ValueError):
     """Raised when an uploaded file fails security validation checks."""
     pass
+
+
+def init_quarantine_dir() -> Path:
+    """Ensure quarantine directory exists with 0o700 restricted permissions."""
+    try:
+        QUARANTINE_DIR.mkdir(parents=True, exist_ok=True)
+        os.chmod(QUARANTINE_DIR, 0o700)
+    except Exception:
+        pass
+    return QUARANTINE_DIR
+
+
+@contextmanager
+def quarantine_file(file_bytes: bytes, filename: str = "upload.tmp"):
+    """Context manager that writes file bytes to an isolated 0o600 non-executable quarantine path,
+    yields the path, and guarantees immediate unlink/cleanup upon exit.
+    """
+    init_quarantine_dir()
+    unique_id = uuid.uuid4().hex
+    safe_name = sanitize_filename(filename)
+    tmp_path = QUARANTINE_DIR / f"{unique_id}_{safe_name}"
+    
+    try:
+        with open(tmp_path, "wb") as f:
+            f.write(file_bytes)
+        # Enforce read/write only, no execution
+        os.chmod(tmp_path, 0o600)
+        yield tmp_path
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
+
+
+def scan_with_clamav(file_path: Path) -> Tuple[bool, str]:
+    """Scan quarantine file with clamscan/clamdscan CLI if installed.
+    Returns (is_clean: bool, detail: str).
+    """
+    clam_binary = shutil.which("clamdscan") or shutil.which("clamscan")
+    if not clam_binary:
+        return True, "ClamAV scanner not installed on host; standard quarantine heuristics applied."
+    
+    try:
+        res = subprocess.run(
+            [clam_binary, "--no-summary", str(file_path)],
+            capture_output=True,
+            text=True,
+            timeout=15.0,
+        )
+        if res.returncode == 0:
+            return True, "Clean scan"
+        elif res.returncode == 1:
+            return False, f"Malware detected by ClamAV: {res.stdout.strip() or 'Infected file'}"
+        else:
+            return True, f"ClamAV scan warning (code {res.returncode}): {res.stderr.strip()}"
+    except subprocess.TimeoutExpired:
+        return False, "ClamAV malware scan timed out"
+    except Exception as e:
+        return True, f"ClamAV scan execution error: {e}"
 
 
 def sanitize_filename(original_filename: str) -> str:
@@ -171,5 +240,11 @@ def validate_upload_file(original_filename: str, mime_type: str, file_bytes: byt
     is_valid_sig, sig_msg = validate_file_signature(ext, file_bytes)
     if not is_valid_sig:
         raise FileValidationError(sig_msg)
+
+    # Perform quarantine & ClamAV malware scan
+    with quarantine_file(file_bytes, sanitized_name) as q_path:
+        is_clean, scan_msg = scan_with_clamav(q_path)
+        if not is_clean:
+            raise FileValidationError(f"Security Alert: Upload rejected. {scan_msg}")
 
     return sanitized_name

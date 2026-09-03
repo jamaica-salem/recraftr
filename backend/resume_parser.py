@@ -1,9 +1,13 @@
-"""Extract plain text from PDF, DOCX, or TXT resumes with timeout and memory guardrails."""
+"""Extract plain text from PDF, DOCX, or TXT resumes with process isolation, timeout, and memory guardrails."""
 import io
 import asyncio
+from concurrent.futures import ProcessPoolExecutor
 import pdfplumber
 from docx import Document
 from file_security import get_file_extension
+
+# Shared process pool for isolated document parsing
+_PROCESS_POOL = ProcessPoolExecutor(max_workers=4)
 
 
 def parse_pdf(file_bytes: bytes) -> str:
@@ -94,10 +98,11 @@ def parse_resume(filename: str, file_bytes: bytes) -> str:
 
 
 async def parse_resume_async(filename: str, file_bytes: bytes, timeout_seconds: float = 10.0) -> str:
-    """Asynchronously parse text from file bytes with a strict timeout guardrail."""
+    """Asynchronously parse text from file bytes with OS Process-level isolation and a 10s timeout."""
+    loop = asyncio.get_running_loop()
     try:
         return await asyncio.wait_for(
-            asyncio.to_thread(parse_resume, filename, file_bytes),
+            loop.run_in_executor(_PROCESS_POOL, parse_resume, filename, file_bytes),
             timeout=timeout_seconds,
         )
     except asyncio.TimeoutError:
