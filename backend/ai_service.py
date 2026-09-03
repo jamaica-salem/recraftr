@@ -60,15 +60,38 @@ def _extract_json(text: str) -> Dict[str, Any]:
 
 
 # ---------------- Prompts ----------------
-ANALYZE_SYSTEM = """You are an elite ATS (Applicant Tracking System) analyzer and career coach.
-You compare a candidate's resume against a job description and produce a rigorous, structured analysis.
-You always respond with a single valid JSON object matching the requested schema. No extra prose."""
+ANALYZE_SYSTEM = """You are ResumeMatch-QA, an expert hiring analyst and ATS evaluator.
+You compare a candidate's RESUME against a JOB_DESCRIPTION and produce a strict, evidence-based analysis.
 
-ANALYZE_PROMPT = """Analyze the following resume against the job.
+MANDATORY SCORING RULES:
+1. Break the JOB_DESCRIPTION into distinct requirements.
+2. Assign each requirement a weight:
+   - "must / required / minimum" requirements -> weight 3
+   - "preferred / nice to have / plus" requirements -> weight 1
+   - all other requirements -> weight 2
+3. Requirement Match Scoring:
+   - Exact match -> 1.0 (quote resume evidence)
+   - Semantic equivalent -> 0.75 (explain reasoning and quote evidence)
+   - Partial match -> 0.4 (explain reasoning and quote evidence)
+   - Missing -> 0.0 (mark MISSING, evidence 'Not found')
+4. Compute Score:
+   - raw = sum(score * weight)
+   - max_raw = sum(weights)
+   - ats_score = round((raw / max_raw) * 100)
+5. Score Category:
+   - ats_score >= 85 -> "Strong"
+   - 60 <= ats_score <= 84 -> "Moderate"
+   - ats_score < 60 -> "Weak"
+
+STRICT INTEGRITY RULES:
+- STRICT RULE: Do NOT invent fake experience, credentials, degrees, or skills. Base every evaluation strictly on evidence found in the uploaded resume.
+- Return ONLY a single valid JSON object. No markdown wrappers or prose outside JSON."""
+
+ANALYZE_PROMPT = """Evaluate the following resume against the job description as ResumeMatch-QA.
 
 JOB TITLE: {job_title}
 
-JOB DESCRIPTION:
+JOB_DESCRIPTION:
 {job_description}
 
 RESUME:
@@ -76,7 +99,8 @@ RESUME:
 
 Return ONLY a JSON object with this exact schema:
 {{
-  "ats_score": <integer 0-100>,
+  "ats_score": <integer 0-100 calculated using exact weighted scoring formula>,
+  "score_category": "Strong" | "Moderate" | "Weak",
   "breakdown": {{
     "keyword_match": <integer 0-100>,
     "skills_match": <integer 0-100>,
@@ -89,25 +113,62 @@ Return ONLY a JSON object with this exact schema:
     "required_skills": [<string>], "keywords": [<string>], "responsibilities": [<string>]
   }},
   "gap_analysis": [
-    {{"requirement": "<string>", "match": "Exact"|"Partial"|"Missing", "evidence": "<short quote or 'Not found'>"}}
+    {{
+      "requirement": "<string requirement>",
+      "match": "Exact" | "Semantic" | "Partial" | "Missing",
+      "weight": 3 | 2 | 1,
+      "score": 1.0 | 0.75 | 0.4 | 0.0,
+      "evidence": "<exact quote from resume or 'Not found'>",
+      "reasoning": "<short explanation for semantic/partial/missing>"
+    }}
   ],
-  "missing_skills": {{ "high": [<string>], "medium": [<string>], "optional": [<string>] }},
-  "improvements": [<string>]
+  "missing_skills": {{
+    "high": [<string mandatory missing technical skills>],
+    "medium": [<string preferred missing technical skills>],
+    "optional": [<string optional missing technical skills>],
+    "soft_skills": [<string missing soft skills>]
+  }},
+  "improvements": [<up to 8 suggested bullet improvements, max 28 words each, with metrics based on resume>],
+  "ats_keywords_to_add": [<top 20 ATS keywords from job description>],
+  "interview_talking_points": [<3 concise talking points based on candidate strengths>],
+  "confidence_flags": [<string uncertainties or ambiguities in resume evidence>],
+  "actionable_resume_changes": {{
+    "replace_rewrite_lines": [
+      {{ "original": "<quote original resume line>", "improved": "<ready-to-copy improved version>", "why": "<1 short sentence explanation>" }}
+    ],
+    "add_missing_content": [
+      {{ "what": "<skill/project/tool/metric>", "ready_to_copy": "<bullet or line>", "where": "<Experience/Skills/Projects>" }}
+    ],
+    "remove_or_deprioritize": [
+      {{ "item": "<weak or irrelevant item>", "why": "<short explanation>" }}
+    ],
+    "reorder_restructure": [
+      {{ "suggestion": "<section reordering or prominence advice>" }}
+    ],
+    "keyword_optimization_edits": [
+      {{ "phrase_to_insert": "<exact phrase>", "target_bullet": "<bullet text>" }}
+    ]
+  }}
 }}
 
-Be strict but fair. Include 6-12 gap rows and 5-10 improvements."""
+STRICT DIRECTIVE: Do NOT invent fake experience or credentials. Base every evaluation strictly on the uploaded resume."""
 
 
-OPTIMIZE_SYSTEM = """You are an elite resume writer specializing in ATS optimization.
-You rewrite resumes to score 95+ on ATS systems while remaining truthful, professional, and realistic.
-Never fabricate experience or credentials — only reframe, quantify, and inject relevant keywords naturally.
-You return a single valid JSON object. No extra prose."""
+OPTIMIZE_SYSTEM = """You are an elite ATS resume writer and career strategist.
+You rewrite resumes to score 95+ on ATS systems while strictly preserving candidate factual integrity.
 
-OPTIMIZE_PROMPT = """Rewrite this resume to maximize alignment with the job below.
+STRICT ANTI-HALLUCINATION DIRECTIVE:
+1. Do NOT invent fake experience, job titles, companies, degrees, or false metrics.
+2. Only reframe, quantify, and weave in keywords for skills/tools the candidate plausibly possesses based on the provided resume.
+3. Base every enhancement strictly on evidence in the uploaded resume.
+4. Return ONLY a single valid JSON object. No extra prose."""
+
+
+OPTIMIZE_PROMPT = """Rewrite this resume to maximize alignment with the job description below.
 
 JOB TITLE: {job_title}
 
-JOB DESCRIPTION:
+JOB_DESCRIPTION:
 {job_description}
 
 CURRENT RESUME:
@@ -116,11 +177,11 @@ CURRENT RESUME:
 AGGRESSIVE MODE: {aggressive}
 
 Guidelines:
-- Preserve all factual claims (companies, dates, degrees). Do NOT invent experience.
-- Rewrite bullets with strong action verbs and measurable impact when reasonable.
+- Preserve all factual claims (companies, dates, degrees). Do NOT invent fake experience.
+- Rewrite bullets with strong action verbs and measurable impact where supported by resume context.
 - Naturally weave in missing keywords/skills from the JD where the candidate plausibly has them.
 - Keep formatting ATS-friendly: plain text, no tables, no columns.
-- Sections: SUMMARY, SKILLS, EXPERIENCE, EDUCATION, PROJECTS (only relevant).
+- Sections: SUMMARY, SKILLS, EXPERIENCE, EDUCATION, PROJECTS.
 - Under EXPERIENCE, each role: "Job Title | Company | Dates" then "- " bullets.
 
 Return ONLY a JSON object:
@@ -128,7 +189,7 @@ Return ONLY a JSON object:
   "optimized_resume": "<full plain-text resume, \\n line breaks>",
   "predicted_ats_score": <integer 0-100>,
   "changes_summary": [<string>]
-}}"""
+}}"""""
 
 
 COVER_SYSTEM = """You are an elite cover letter writer.
@@ -313,10 +374,14 @@ async def _run_stream(system: str, prompt: str, model_key: str = DEFAULT_MODEL) 
 def create_unified_analysis(resume_text: str, job_title: str, job_description: str, ai_result: Dict[str, Any]) -> Dict[str, Any]:
     """Combines output of Deterministic Engine + AI Layer into a single Unified Analysis object."""
     det = analyze_deterministic(resume_text, job_title, job_description)
-    
+
     # Take AI ATS score if present, else fallback to deterministic ATS score
     ai_score = ai_result.get("ats_score")
     final_score = ai_score if isinstance(ai_score, int) else det["ats_score"]
+
+    category = ai_result.get("score_category")
+    if not category:
+        category = "Strong" if final_score >= 85 else ("Moderate" if final_score >= 60 else "Weak")
 
     # Merge breakdown
     ai_breakdown = ai_result.get("breakdown") or {}
@@ -337,12 +402,17 @@ def create_unified_analysis(resume_text: str, job_title: str, job_description: s
 
     return {
         "ats_score": final_score,
+        "score_category": category,
         "breakdown": final_breakdown,
         "resume_sections": resume_sections,
         "job_requirements": ai_result.get("job_requirements") or det["job_requirements"],
         "gap_analysis": gap_analysis,
         "missing_skills": missing_skills,
         "improvements": improvements,
+        "ats_keywords_to_add": ai_result.get("ats_keywords_to_add", []),
+        "interview_talking_points": ai_result.get("interview_talking_points", []),
+        "confidence_flags": ai_result.get("confidence_flags", []),
+        "actionable_resume_changes": ai_result.get("actionable_resume_changes", {}),
         "deterministic_metrics": det.get("deterministic_metrics", {})
     }
 

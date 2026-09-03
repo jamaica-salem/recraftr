@@ -56,15 +56,16 @@ function BreakdownCard({ label, value, testId }) {
 
 function MatchBadge({ match }) {
   const cfg = {
-    Exact:   { icon: CheckCircle2, cls: "bg-[#0B2818] text-[#4ADE80] border-[#16A34A]/40" },
-    Partial: { icon: AlertCircle,  cls: "bg-[#2A1B05] text-[#FBBF24] border-[#D97706]/40" },
-    Missing: { icon: Circle,       cls: "bg-[#2A0B0B] text-[#F87171] border-[#DC2626]/40" },
+    Exact:    { icon: CheckCircle2, cls: "bg-[#0B2818] text-[#4ADE80] border-[#16A34A]/40" },
+    Semantic: { icon: CheckCircle2, cls: "bg-[#0F1B2E] text-[#60A5FA] border-[#2563EB]/40" },
+    Partial:  { icon: AlertCircle,  cls: "bg-[#2A1B05] text-[#FBBF24] border-[#D97706]/40" },
+    Missing:  { icon: Circle,       cls: "bg-[#2A0B0B] text-[#F87171] border-[#DC2626]/40" },
   };
   const c = cfg[match] || cfg.Missing;
   const Icon = c.icon;
   return (
-    <span className={`inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-md border ${c.cls}`}>
-      <Icon className="w-3 h-3" strokeWidth={2} />{match}
+    <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border font-medium ${c.cls}`}>
+      <Icon className="w-3.5 h-3.5" strokeWidth={2} />{match}
     </span>
   );
 }
@@ -199,18 +200,29 @@ export default function ResultsDashboard({
         </TabsList>
 
         {/* Overview */}
-        <TabsContent value="overview" className="mt-8">
+        <TabsContent value="overview" className="mt-8 space-y-6">
           <div className="card-solid p-8 flex flex-col md:flex-row gap-8 items-start">
             <ScoreRing value={analysis?.ats_score} />
             <div className="flex-1 w-full">
-              <div className="label-caps mb-2">ATS Match Score</div>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="label-caps">ATS Match Score</div>
+                {analysis?.score_category && (
+                  <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
+                    analysis.score_category === "Strong" ? "bg-[#0B2818] text-[#4ADE80] border-[#16A34A]/40"
+                    : analysis.score_category === "Moderate" ? "bg-[#2A1B05] text-[#FBBF24] border-[#D97706]/40"
+                    : "bg-[#2A0B0B] text-[#F87171] border-[#DC2626]/40"
+                  }`}>
+                    {analysis.score_category} Match
+                  </span>
+                )}
+              </div>
               <div className="font-display text-2xl text-[#F5F5F5] mb-1">
-                {(analysis?.ats_score ?? 0) >= 80 ? "Strong alignment with the role."
-                 : (analysis?.ats_score ?? 0) >= 60 ? "Decent match — a targeted rewrite will lift this significantly."
-                 : "Low match — optimization will make the biggest difference here."}
+                {(analysis?.ats_score ?? 0) >= 85 ? "Strong alignment with the role."
+                 : (analysis?.ats_score ?? 0) >= 60 ? "Moderate match — targeted optimization will lift this to 90+."
+                 : "Weak match — optimization will make the biggest difference here."}
               </div>
               <p className="text-sm text-neutral-400 max-w-xl">
-                Based on keyword coverage, skill overlap, and experience relevance against the target job description.
+                Evaluated with weighted scoring rules (required must-haves = weight 3, preferred = weight 1, standard = weight 2).
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
                 <BreakdownCard label="Keyword Match" value={breakdown.keyword_match} testId={RESUME.breakdownKeyword} />
@@ -222,7 +234,7 @@ export default function ResultsDashboard({
                 <div>
                   <div className="label-caps mb-1">Next step</div>
                   <div className="text-[#F5F5F5] font-medium">Iterative AI Optimization targeting 90+ ATS score</div>
-                  <div className="text-xs text-neutral-500 mt-1">Multi-pass keyword injection and bullet refinement until 90+ score is hit.</div>
+                  <div className="text-xs text-neutral-500 mt-1">Multi-pass keyword injection and bullet refinement strictly preserving resume facts.</div>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <Button onClick={onOptimize} disabled={optimizing || autoOptimizing}
@@ -239,6 +251,36 @@ export default function ResultsDashboard({
               </div>
             </div>
           </div>
+
+          {/* Top ATS Keywords to Add & Interview Talking Points */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {analysis?.ats_keywords_to_add && analysis.ats_keywords_to_add.length > 0 && (
+              <div className="card-solid p-6">
+                <div className="label-caps mb-3 text-amber-400">Top ATS Keywords to Add (Top 20)</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {analysis.ats_keywords_to_add.map((kw, i) => (
+                    <Badge key={i} className="bg-[#1F190B] text-amber-300 border border-amber-500/30 text-xs px-2.5 py-1 font-normal">
+                      {kw}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {analysis?.interview_talking_points && analysis.interview_talking_points.length > 0 && (
+              <div className="card-solid p-6">
+                <div className="label-caps mb-3 text-blue-400">Interview Preparation Talking Points</div>
+                <ul className="space-y-2 text-xs text-neutral-300">
+                  {analysis.interview_talking_points.map((tp, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="text-blue-400 font-bold">•</span>
+                      <span>{tp}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         </TabsContent>
 
         {/* Gap Analysis */}
@@ -246,10 +288,10 @@ export default function ResultsDashboard({
           <div data-testid={RESUME.gapTable} className="card-solid overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left label-caps">
-                  <th className="px-6 py-4 font-semibold w-2/5">Requirement</th>
-                  <th className="px-6 py-4 font-semibold w-1/6">Match</th>
-                  <th className="px-6 py-4 font-semibold">Evidence</th>
+                <tr className="text-left label-caps border-b border-[#262626] bg-[#0A0A0A]">
+                  <th className="px-6 py-4 font-semibold w-1/3">Requirement</th>
+                  <th className="px-6 py-4 font-semibold">Match & Weight</th>
+                  <th className="px-6 py-4 font-semibold">Resume Evidence & Reasoning</th>
                 </tr>
               </thead>
               <tbody>
@@ -257,10 +299,24 @@ export default function ResultsDashboard({
                   <tr><td className="px-6 py-6 text-neutral-500" colSpan={3}>No requirements returned.</td></tr>
                 )}
                 {gap.map((row, i) => (
-                  <tr key={i} className="border-t border-[#1F1F1F]">
-                    <td className="px-6 py-4 text-[#F5F5F5]">{row.requirement}</td>
-                    <td className="px-6 py-4"><MatchBadge match={row.match} /></td>
-                    <td className="px-6 py-4 text-neutral-400">{row.evidence}</td>
+                  <tr key={i} className="border-t border-[#1F1F1F] hover:bg-[#141414] transition-colors">
+                    <td className="px-6 py-4 text-[#F5F5F5] font-medium">{row.requirement}</td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <MatchBadge match={row.match} />
+                        {row.weight && (
+                          <span className="text-[11px] text-neutral-400 bg-[#1A1A1A] px-2 py-0.5 rounded border border-[#333]">
+                            Weight {row.weight}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-neutral-400">
+                      <div className="text-sm text-neutral-300">{row.evidence}</div>
+                      {row.reasoning && (
+                        <div className="text-xs text-neutral-500 mt-1 italic">{row.reasoning}</div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -270,11 +326,12 @@ export default function ResultsDashboard({
 
         {/* Missing */}
         <TabsContent value="missing" className="mt-8">
-          <div data-testid={RESUME.missingList} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div data-testid={RESUME.missingList} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
             {[
-              { key: "high", label: "High Priority", items: missing.high || [], cls: "bg-[#2A0B0B] text-[#F87171] border-[#DC2626]/40" },
-              { key: "medium", label: "Medium", items: missing.medium || [], cls: "bg-[#2A1B05] text-[#FBBF24] border-[#D97706]/40" },
-              { key: "optional", label: "Optional", items: missing.optional || [], cls: "bg-[#0F1B2E] text-[#93C5FD] border-[#2563EB]/40" },
+              { key: "high", label: "High Priority Technical", items: missing.high || [], cls: "bg-[#2A0B0B] text-[#F87171] border-[#DC2626]/40" },
+              { key: "medium", label: "Medium Priority Technical", items: missing.medium || [], cls: "bg-[#2A1B05] text-[#FBBF24] border-[#D97706]/40" },
+              { key: "optional", label: "Optional / Plus", items: missing.optional || [], cls: "bg-[#0F1B2E] text-[#93C5FD] border-[#2563EB]/40" },
+              { key: "soft_skills", label: "Missing Soft Skills", items: missing.soft_skills || [], cls: "bg-[#1E102A] text-[#C084FC] border-[#9333EA]/40" },
             ].map((g) => (
               <div key={g.key} className="card-solid p-6">
                 <div className="label-caps mb-4">{g.label}</div>
@@ -283,7 +340,7 @@ export default function ResultsDashboard({
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {g.items.map((s, i) => (
-                      <Badge key={i} className={`border ${g.cls} bg-transparent`}>{s}</Badge>
+                      <Badge key={i} className={`border ${g.cls} bg-transparent px-2.5 py-1 text-xs font-normal`}>{s}</Badge>
                     ))}
                   </div>
                 )}
