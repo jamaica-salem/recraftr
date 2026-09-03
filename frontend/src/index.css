@@ -26,6 +26,10 @@ code, .font-mono {
   font-family: 'Sora', sans-serif;
 }
 
+.font-outfit {
+  font-family: 'Outfit', sans-serif;
+}
+
 .font-display {
   font-family: 'Outfit', sans-serif;
   letter-spacing: -0.02em;

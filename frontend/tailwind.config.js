@@ -9,6 +9,7 @@ module.exports = {
     extend: {
       fontFamily: {
         sans: ['IBM Plex Sans', '-apple-system', 'sans-serif'],
+        outfit: ['Outfit', 'sans-serif'],
         plex: ['IBM Plex Sans', 'sans-serif'],
         display: ['Outfit', 'sans-serif'],
         mono: ['IBM Plex Mono', 'monospace'],
