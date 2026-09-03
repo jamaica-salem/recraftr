@@ -7,7 +7,7 @@
 
 body {
   margin: 0;
-  font-family: 'Sora', 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: #0A0A0A;
@@ -16,6 +16,10 @@ body {
 
 code, .font-mono {
   font-family: 'IBM Plex Mono', Menlo, Monaco, monospace;
+}
+
+.font-plex {
+  font-family: 'IBM Plex Sans', sans-serif;
 }
 
 .font-sora {

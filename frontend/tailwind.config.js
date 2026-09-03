@@ -8,7 +8,8 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Sora', 'IBM Plex Sans', 'sans-serif'],
+        sans: ['IBM Plex Sans', '-apple-system', 'sans-serif'],
+        plex: ['IBM Plex Sans', 'sans-serif'],
         display: ['Outfit', 'sans-serif'],
         mono: ['IBM Plex Mono', 'monospace'],
         sora: ['Sora', 'sans-serif'],
