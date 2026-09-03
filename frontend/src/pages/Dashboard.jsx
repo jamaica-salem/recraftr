@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sparkles, Play } from "lucide-react";
+import { Sparkles, Play, Zap } from "lucide-react";
 import axios from "axios";
 import { API, useAuth } from "@/context/AuthContext";
 import { streamPost } from "@/lib/stream";
@@ -414,14 +414,14 @@ Requirements & Qualifications:
           <div className="text-xs text-neutral-500">
             {canAnalyze ? "Ready to run analysis or auto-optimize." : "Upload a resume and paste a job description to enable actions."}
           </div>
-          <div className="flex gap-3 flex-wrap">
+          <div className="flex gap-2.5 flex-wrap">
             <Button
               data-testid={RESUME.analyzeBtn}
               onClick={runAnalyze}
               disabled={!canAnalyze || !!loading}
-              className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-full px-6 h-11 disabled:opacity-40"
+              className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-lg px-4 h-10 text-xs font-medium cursor-pointer disabled:opacity-40"
             >
-              <Play className="w-4 h-4 mr-2" strokeWidth={2} />
+              <Play className="w-3.5 h-3.5 mr-1.5" strokeWidth={2} />
               Analyze Resume
             </Button>
             <Button
@@ -429,17 +429,17 @@ Requirements & Qualifications:
               onClick={runOptimize}
               disabled={!canAnalyze || !!loading}
               variant="outline"
-              className="bg-transparent border-[#262626] text-[#F5F5F5] hover:bg-[#1F1F1F] rounded-full px-6 h-11"
+              className="bg-[#141414] border-[#262626] text-neutral-200 hover:bg-[#1F1F1F] hover:text-white rounded-lg px-4 h-10 text-xs font-medium cursor-pointer"
             >
-              <Sparkles className="w-4 h-4 mr-2" strokeWidth={2} />
+              <Sparkles className="w-3.5 h-3.5 mr-1.5 text-neutral-400" strokeWidth={2} />
               Optimize Resume
             </Button>
             <Button
               onClick={runAutoOptimize}
               disabled={!canAnalyze || !!loading}
-              className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-full px-6 h-11 shadow-lg border border-amber-400/30 flex items-center gap-2"
+              className="bg-[#1E293B] hover:bg-[#334155] border border-[#334155] text-blue-300 hover:text-white rounded-lg px-4 h-10 text-xs font-medium cursor-pointer flex items-center gap-1.5"
             >
-              <Sparkles className="w-4 h-4 text-amber-200 fill-amber-200" />
+              <Zap className="w-3.5 h-3.5 text-blue-400" />
               <span>Boost to 90+ ATS</span>
             </Button>
           </div>

@@ -248,8 +248,8 @@ export default function ResultsDashboard({
                 <div className="label-caps">ATS Match Score</div>
                 {analysis?.score_category && (
                   <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${analysis.score_category === "Strong" ? "bg-[#0B2818] text-[#4ADE80] border-[#16A34A]/40"
-                      : analysis.score_category === "Moderate" ? "bg-[#2A1B05] text-[#FBBF24] border-[#D97706]/40"
-                        : "bg-[#2A0B0B] text-[#F87171] border-[#DC2626]/40"
+                    : analysis.score_category === "Moderate" ? "bg-[#2A1B05] text-[#FBBF24] border-[#D97706]/40"
+                      : "bg-[#2A0B0B] text-[#F87171] border-[#DC2626]/40"
                     }`}>
                     {analysis.score_category} Match
                   </span>
@@ -275,16 +275,16 @@ export default function ResultsDashboard({
                   <div className="text-[#F5F5F5] font-medium">Iterative AI Optimization targeting 90+ ATS score</div>
                   <div className="text-xs text-neutral-500 mt-1">Multi-pass keyword injection and bullet refinement strictly preserving resume facts.</div>
                 </div>
-                <div className="flex gap-2 flex-wrap">
+                <div className="flex gap-2.5 flex-wrap">
                   <Button onClick={onOptimize} disabled={optimizing || autoOptimizing}
-                    className="bg-[#2563EB] text-white hover:bg-[#1D4ED8] rounded-full px-5">
-                    <Sparkles className="w-4 h-4 mr-2" />
+                    className="bg-[#2563EB] text-white hover:bg-[#1D4ED8] rounded-lg text-xs font-medium px-4 h-9 cursor-pointer">
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5" />
                     {optimizing ? "Optimizing..." : "Standard Rewrite"}
                   </Button>
                   <Button onClick={onAutoOptimize} disabled={optimizing || autoOptimizing}
-                    className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-full px-5 shadow-lg border border-amber-400/30 flex items-center gap-1.5">
-                    <Zap className="w-4 h-4 text-white fill-white" />
-                    {autoOptimizing ? "Boosting to 90+..." : "Boost to 90+ ATS"}
+                    className="bg-[#1E293B] hover:bg-[#334155] border border-[#334155] text-blue-300 hover:text-white rounded-lg text-xs font-medium px-4 h-9 cursor-pointer flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-blue-400" />
+                    <span>{autoOptimizing ? "Boosting to 90+..." : "Boost to 90+ ATS"}</span>
                   </Button>
                 </div>
               </div>
@@ -460,28 +460,28 @@ export default function ResultsDashboard({
                     onClick={() => onReEvaluateATS && onReEvaluateATS(activeResumeText)}
                     disabled={optimizing || autoOptimizing || reEvaluating}
                     variant="outline"
-                    className="bg-[#0A2C1A] border-[#16A34A]/40 text-[#4ADE80] hover:bg-[#16A34A] hover:text-white rounded-full text-xs font-semibold px-4 h-9 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                    className="bg-[#141414] border-[#262626] text-emerald-400 hover:bg-[#1A1A1A] hover:text-emerald-300 rounded-lg text-xs font-medium px-3.5 h-9 flex items-center gap-1.5 cursor-pointer shadow-none"
                   >
-                    <BarChart2 className="w-3.5 h-3.5" />
+                    <BarChart2 className="w-3.5 h-3.5 text-emerald-400" />
                     <span>{reEvaluating ? "Evaluating Real ATS..." : "Check Real ATS Score"}</span>
                   </Button>
 
                   <Button
                     onClick={onAutoOptimize}
                     disabled={optimizing || autoOptimizing || reEvaluating}
-                    className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-semibold rounded-full px-4 h-9 shadow border border-amber-400/30 flex items-center gap-1.5 cursor-pointer"
+                    className="bg-[#1E293B] hover:bg-[#334155] border border-[#334155] text-blue-300 hover:text-white text-xs font-medium rounded-lg px-3.5 h-9 flex items-center gap-1.5 cursor-pointer shadow-none"
                   >
-                    <Zap className="w-3.5 h-3.5 text-white fill-white" />
+                    <Zap className="w-3.5 h-3.5 text-blue-400" />
                     <span>{autoOptimizing ? "Re-Boosting..." : "Re-Optimize to 90+"}</span>
                   </Button>
 
-                  <div className="flex bg-[#0A0A0A] border border-[#262626] rounded-full p-1 h-9 items-center">
+                  <div className="flex bg-[#0A0A0A] border border-[#262626] rounded-lg p-1 h-9 items-center">
                     <button
                       type="button"
                       onClick={() => setEditorMode("interactive")}
-                      className={`h-7 px-3 text-xs rounded-full flex items-center gap-1.5 font-semibold transition-all ${
+                      className={`h-7 px-3 text-xs rounded-md flex items-center gap-1.5 font-medium transition-all ${
                         editorMode === "interactive"
-                          ? "bg-[#2563EB] text-white shadow"
+                          ? "bg-[#2563EB] text-white"
                           : "text-neutral-400 hover:text-white"
                       }`}
                     >
@@ -491,9 +491,9 @@ export default function ResultsDashboard({
                     <button
                       type="button"
                       onClick={() => setEditorMode("raw")}
-                      className={`h-7 px-3 text-xs rounded-full flex items-center gap-1.5 font-semibold transition-all ${
+                      className={`h-7 px-3 text-xs rounded-md flex items-center gap-1.5 font-medium transition-all ${
                         editorMode === "raw"
-                          ? "bg-[#2563EB] text-white shadow"
+                          ? "bg-[#2563EB] text-white"
                           : "text-neutral-400 hover:text-white"
                       }`}
                     >
@@ -506,9 +506,9 @@ export default function ResultsDashboard({
                     onClick={openSaveModal}
                     disabled={savingToTracker}
                     variant="outline"
-                    className="bg-transparent border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/20 hover:text-white text-xs font-semibold rounded-full px-4 h-9 shadow flex items-center gap-1.5 cursor-pointer"
+                    className="bg-[#141414] border-[#262626] text-neutral-200 hover:bg-[#1F1F1F] hover:text-white text-xs font-medium rounded-lg px-3.5 h-9 flex items-center gap-1.5 cursor-pointer shadow-none"
                   >
-                    <BookmarkPlus className="w-3.5 h-3.5 text-indigo-400" />
+                    <BookmarkPlus className="w-3.5 h-3.5 text-neutral-400" />
                     <span>Save to Tracker</span>
                   </Button>
 
@@ -516,16 +516,16 @@ export default function ResultsDashboard({
                     data-testid={RESUME.copyResumeBtn}
                     variant="outline"
                     onClick={() => copyText(activeResumeText, "Optimized resume")}
-                    className="bg-transparent border-[#262626] text-neutral-200 hover:bg-[#1F1F1F] hover:text-white text-xs font-semibold rounded-full px-4 h-9 shadow flex items-center gap-1.5 cursor-pointer"
+                    className="bg-[#141414] border-[#262626] text-neutral-200 hover:bg-[#1F1F1F] hover:text-white text-xs font-medium rounded-lg px-3.5 h-9 flex items-center gap-1.5 cursor-pointer shadow-none"
                   >
-                    <Copy className="w-3.5 h-3.5" />
+                    <Copy className="w-3.5 h-3.5 text-neutral-400" />
                     <span>Copy</span>
                   </Button>
 
                   <Button
                     data-testid={RESUME.downloadPdfBtn}
                     onClick={downloadResumePdf}
-                    className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold rounded-full px-4 h-9 shadow flex items-center gap-1.5 cursor-pointer"
+                    className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-medium rounded-lg px-3.5 h-9 flex items-center gap-1.5 cursor-pointer shadow-none"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Export PDF/HTML</span>
@@ -700,11 +700,11 @@ export default function ResultsDashboard({
                 onChange={(e) => setSaveForm((prev) => ({ ...prev, status: e.target.value }))}
                 className="w-full h-10 rounded-md border border-[#333333] bg-[#1A1A1A] px-3 py-1 text-sm text-white focus:outline-none focus:border-[#2563EB]"
               >
-                <option value="applied">📑 Applied</option>
-                <option value="interviewing">🎙️ Interviewing</option>
-                <option value="offer">🎉 Offer Received</option>
-                <option value="bookmarked">📌 Bookmarked / Saved</option>
-                <option value="rejected">❌ Rejected</option>
+                <option value="applied">Applied</option>
+                <option value="interviewing">Interviewing</option>
+                <option value="offer">Offer Received</option>
+                <option value="bookmarked">Bookmarked / Saved</option>
+                <option value="rejected">Rejected</option>
               </select>
             </div>
 
