@@ -14,9 +14,9 @@ export default function UploadZone({ onUploaded, uploaded, onClear, onLoadSample
 
   const uploadFile = async (file) => {
     if (!file) return;
-    const okExt = /\.(pdf|docx)$/i.test(file.name);
+    const okExt = /\.(pdf|docx|txt)$/i.test(file.name);
     if (!okExt) {
-      toast.error("Only PDF or DOCX files are supported.");
+      toast.error("Only PDF, DOCX, or TXT files are supported.");
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
@@ -103,7 +103,7 @@ export default function UploadZone({ onUploaded, uploaded, onClear, onLoadSample
         ref={inputRef}
         data-testid={RESUME.uploadInput}
         type="file"
-        accept=".pdf,.docx"
+        accept=".pdf,.docx,.txt"
         className="hidden"
         onChange={(e) => uploadFile(e.target.files?.[0])}
       />
@@ -117,7 +117,7 @@ export default function UploadZone({ onUploaded, uploaded, onClear, onLoadSample
             {busy ? "Parsing resume..." : "Drop your resume here"}
           </div>
           <div className="text-sm text-neutral-400">
-            PDF or DOCX, up to 5 MB. Or click to browse.
+            PDF, DOCX, or TXT up to 5 MB. Or click to browse.
           </div>
         </div>
 

@@ -83,8 +83,8 @@ Requirements & Qualifications:
 
     try {
       setLoading("sample");
-      const blob = new Blob([sampleResumeText], { type: "application/pdf" });
-      const file = new File([blob], "sample_resume_alex_morgan.pdf", { type: "application/pdf" });
+      const blob = new Blob([sampleResumeText], { type: "text/plain" });
+      const file = new File([blob], "sample_resume_alex_morgan.txt", { type: "text/plain" });
       const form = new FormData();
       form.append("file", file);
 
