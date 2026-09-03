@@ -15,8 +15,9 @@ const PRESET_CONFIGS = {
     bodyColor: "#171717",
     fontFamily: "Times-Roman",
     headerAlign: "center",
+    fontSizeName: 14.5,
     fontSizeBody: 9.5,
-    margin: "28px 24px",
+    margin: "24px 24px",
     hasDivider: true,
     headerBorderDouble: true,
   },
@@ -26,6 +27,7 @@ const PRESET_CONFIGS = {
     bodyColor: "#171717",
     fontFamily: "Helvetica",
     headerAlign: "left",
+    fontSizeName: 18.0,
     fontSizeBody: 10.5,
     margin: "32px 28px",
     hasDivider: false,
@@ -36,6 +38,7 @@ const PRESET_CONFIGS = {
     bodyColor: "#0F172A",
     fontFamily: "Helvetica",
     headerAlign: "left",
+    fontSizeName: 18.0,
     fontSizeBody: 10.0,
     margin: "28px 24px",
     hasDivider: true,
@@ -46,6 +49,7 @@ const PRESET_CONFIGS = {
     bodyColor: "#1F2937",
     fontFamily: "Helvetica",
     headerAlign: "left",
+    fontSizeName: 16.0,
     fontSizeBody: 9.2,
     margin: "20px 20px",
     hasDivider: false,
@@ -56,6 +60,7 @@ const PRESET_CONFIGS = {
     bodyColor: "#1E293B",
     fontFamily: "Times-Roman",
     headerAlign: "center",
+    fontSizeName: 16.0,
     fontSizeBody: 10.5,
     margin: "36px 32px",
     hasDivider: true,
@@ -67,6 +72,17 @@ function escapeHtml(str = "") {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function linkifyContact(str = "") {
+  const escaped = escapeHtml(str);
+  return escaped.replace(
+    /(?:https?:\/\/)?(?:www\.|github\.com\/|linkedin\.com\/in\/)[^\s|]+/gi,
+    (match) => {
+      const href = match.startsWith("http") ? match : `https://${match}`;
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color:#003399;text-decoration:underline;">${match}</a>`;
+    }
+  );
 }
 
 export function generateResumeHtmlPreview(
@@ -100,7 +116,7 @@ export function generateResumeHtmlPreview(
     if (!nameLine && !SECTION_HEADERS.has(upper)) {
       nameLine = s;
       bodyStart = i + 1;
-    } else if (!SECTION_HEADERS.has(upper) && contactLines.length < 2) {
+    } else if (!SECTION_HEADERS.has(upper) && contactLines.length < 3) {
       contactLines.push(s);
       bodyStart = i + 1;
     } else {
@@ -109,6 +125,7 @@ export function generateResumeHtmlPreview(
   }
 
   const isDoubleHeader = base.headerBorderDouble || (base.headerAlign === "center" && base.fontFamily === "Times-Roman");
+  const namePx = Math.round((base.fontSizeName || 15) * 1.1);
 
   const htmlParts = [];
   htmlParts.push(`<!DOCTYPE html>
@@ -125,29 +142,36 @@ export function generateResumeHtmlPreview(
     line-height: 1.45;
     font-size: ${base.fontSizeBody}pt;
   }
+  .name {
+    font-size: ${namePx}px;
+    font-weight: 700;
+    color: ${base.primaryColor};
+    margin: 0 0 4px 0;
+    text-align: ${base.headerAlign};
+    line-height: 1.2;
+    letter-spacing: 0.2px;
+  }
   .header {
     text-align: ${base.headerAlign};
-    margin-bottom: 16px;
-    ${isDoubleHeader ? `border-top: 1px solid ${base.primaryColor}; border-bottom: 1px solid ${base.primaryColor}; padding: 6px 0;` : (base.hasDivider ? `border-bottom: 2px solid ${base.primaryColor}; padding-bottom: 10px;` : "")}
-  }
-  .name {
-    font-size: 24px;
-    font-weight: 700;
-    color: ${base.primaryColor};
-    margin: 0 0 6px 0;
-    line-height: 1.2;
-    letter-spacing: 0.5px;
+    margin-top: 4px;
+    margin-bottom: 14px;
+    ${isDoubleHeader ? `border-top: 1px solid ${base.primaryColor}; border-bottom: 1px solid ${base.primaryColor}; padding: 4px 0;` : (base.hasDivider ? `border-bottom: 2px solid ${base.primaryColor}; padding-bottom: 10px;` : "")}
   }
   .contact {
-    font-size: 13px;
+    font-size: 9.5pt;
     color: ${base.secondaryColor};
-    margin: 0;
+    margin: 1px 0;
+    line-height: 1.35;
+  }
+  .contact a {
+    color: #003399;
+    text-decoration: underline;
   }
   .section-title {
-    font-size: 14px;
+    font-size: 12pt;
     font-weight: 700;
     color: ${base.primaryColor};
-    margin-top: 18px;
+    margin-top: 14px;
     margin-bottom: 4px;
     border-bottom: 1px solid ${base.primaryColor};
     padding-bottom: 2px;
@@ -165,20 +189,22 @@ export function generateResumeHtmlPreview(
   }
   .two-col-right {
     font-size: ${base.fontSizeBody}pt;
-    font-style: italic;
+    font-style: normal;
     text-align: right;
   }
   ul {
-    margin: 4px 0 10px 18px;
+    margin: 3px 0 8px 16px;
     padding: 0;
   }
   li {
     margin-bottom: 3px;
     font-size: ${base.fontSizeBody}pt;
+    line-height: 1.35;
   }
   p {
     font-size: ${base.fontSizeBody}pt;
-    margin: 4px 0;
+    margin: 3px 0;
+    line-height: 1.35;
   }
 </style>
 </head>
@@ -186,19 +212,12 @@ export function generateResumeHtmlPreview(
 `);
 
   if (nameLine || contactLines.length > 0) {
-    if (isDoubleHeader) {
-      if (nameLine) htmlParts.push(`  <h1 class="name" style="text-align:center">${escapeHtml(nameLine)}</h1>`);
+    if (nameLine) htmlParts.push(`  <h1 class="name">${escapeHtml(nameLine)}</h1>`);
+    if (contactLines.length > 0) {
       htmlParts.push('<div class="header">');
-      if (contactLines.length > 0) {
-        htmlParts.push(`  <p class="contact">${escapeHtml(contactLines.join(" | "))}</p>`);
-      }
-      htmlParts.push("</div>");
-    } else {
-      htmlParts.push('<div class="header">');
-      if (nameLine) htmlParts.push(`  <h1 class="name">${escapeHtml(nameLine)}</h1>`);
-      if (contactLines.length > 0) {
-        htmlParts.push(`  <p class="contact">${escapeHtml(contactLines.join(" | "))}</p>`);
-      }
+      contactLines.forEach((cLine) => {
+        htmlParts.push(`  <p class="contact">${linkifyContact(cLine)}</p>`);
+      });
       htmlParts.push("</div>");
     }
   }
