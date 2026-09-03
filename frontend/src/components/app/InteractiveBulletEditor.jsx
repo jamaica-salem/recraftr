@@ -26,7 +26,9 @@ const SECTION_HEADERS = new Set([
 
 export default function InteractiveBulletEditor({
   resumeText = "",
+  initialResumeText = "",
   onUpdateResumeText,
+  onChange,
   jobDescription = "",
   authHeaders = {},
 }) {
@@ -35,7 +37,13 @@ export default function InteractiveBulletEditor({
   const [activeKeywordLine, setActiveKeywordLine] = useState(null);
   const [history, setHistory] = useState([]); // [{ index, prevText }]
 
-  const lines = (resumeText || "").split("\n");
+  const activeText = initialResumeText || resumeText || "";
+  const lines = activeText.split("\n");
+
+  const notifyChange = (newText) => {
+    if (onUpdateResumeText) onUpdateResumeText(newText);
+    if (onChange) onChange(newText);
+  };
 
   const handleRewrite = async (lineIndex, instruction) => {
     const originalLine = lines[lineIndex];
@@ -80,7 +88,7 @@ export default function InteractiveBulletEditor({
         ...prev,
       ]);
 
-      onUpdateResumeText(updatedLines.join("\n"));
+      notifyChange(updatedLines.join("\n"));
       toast.success("Bullet point rewritten!");
     } catch (e) {
       toast.error(e.message || "Failed to rewrite bullet");
@@ -97,7 +105,7 @@ export default function InteractiveBulletEditor({
     updatedLines[lineIndex] = histItem.prevLine;
 
     setHistory((prev) => prev.filter((h) => h !== histItem));
-    onUpdateResumeText(updatedLines.join("\n"));
+    notifyChange(updatedLines.join("\n"));
     toast.info("Reverted to previous bullet");
   };
 

@@ -527,9 +527,11 @@ export default function ResultsDashboard({
               {/* Editor Mode: Interactive vs Plain Text */}
               {editorMode === "interactive" ? (
                 <InteractiveBulletEditor
-                  initialResumeText={optimization.optimized_resume}
-                  jobDescription={analysis?.job_description || ""}
+                  initialResumeText={activeResumeText}
+                  resumeText={activeResumeText}
+                  jobDescription={analysis?.job_description || jobDesc || ""}
                   onChange={(newText) => setCurrentResumeText(newText)}
+                  onUpdateResumeText={(newText) => setCurrentResumeText(newText)}
                 />
               ) : (
                 <pre className="bg-[#0A0A0A] border border-[#1F1F1F] rounded-md p-6 font-mono text-xs text-neutral-200 whitespace-pre-wrap leading-relaxed max-h-[600px] overflow-y-auto">
