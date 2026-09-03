@@ -149,7 +149,7 @@ Requirements & Qualifications:
         authHeaders,
         (ev) => {
           if (ev.type === "delta") setStreamText((prev) => prev + ev.text);
-          else if (ev.type === "done") saved = { analysis_id: ev.analysis_id, ...(ev.result || {}) };
+          else if (ev.type === "done") saved = { analysis_id: ev.analysis_id, job_title: jobTitle, job_description: jobDesc, ...(ev.result || {}) };
           else if (ev.type === "error") throw new Error(ev.error);
         },
       );
@@ -299,7 +299,7 @@ Requirements & Qualifications:
         authHeaders,
         (ev) => {
           if (ev.type === "delta") setStreamText((prev) => prev + ev.text);
-          else if (ev.type === "done") saved = { analysis_id: ev.analysis_id, ...(ev.result || {}) };
+          else if (ev.type === "done") saved = { analysis_id: ev.analysis_id, job_title: jobTitle, job_description: jobDesc, ...(ev.result || {}) };
           else if (ev.type === "error") throw new Error(ev.error);
         },
       );
@@ -451,6 +451,8 @@ Requirements & Qualifications:
             optimization={optimization}
             originalResumeText={originalText}
             coverLetter={coverLetter}
+            jobTitle={jobTitle}
+            jobDesc={jobDesc}
             onOptimize={runOptimize}
             onAutoOptimize={runAutoOptimize}
             onGenerateCoverLetter={runCoverLetter}

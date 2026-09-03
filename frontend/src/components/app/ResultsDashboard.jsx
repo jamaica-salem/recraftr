@@ -105,7 +105,7 @@ function SimpleDiff({ before, after }) {
 }
 
 export default function ResultsDashboard({
-  analysis, optimization, originalResumeText, coverLetter,
+  analysis, optimization, originalResumeText, coverLetter, jobTitle, jobDesc,
   onOptimize, onAutoOptimize, onGenerateCoverLetter, onReEvaluateATS,
   optimizing, autoOptimizing, coverLoading, reEvaluating,
 }) {
@@ -141,12 +141,14 @@ export default function ResultsDashboard({
   const saveToTracker = async () => {
     try {
       setSavingToTracker(true);
+      const targetJobTitle = analysis?.job_title || jobTitle || "Target Role";
+      const targetJobDesc = analysis?.job_description || jobDesc || "";
       const payload = {
-        job_title: analysis?.job_title || "Target Role",
+        job_title: targetJobTitle,
         company_name: "Target Company",
         status: "applied",
-        ats_score: analysis?.ats_score,
-        job_description: analysis?.job_description || "",
+        ats_score: optimization?.predicted_ats_score || analysis?.ats_score,
+        job_description: targetJobDesc,
         optimized_resume: activeResumeText,
         cover_letter: coverLetter || "",
       };
