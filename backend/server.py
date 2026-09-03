@@ -25,7 +25,7 @@ from auth import (
 from resume_parser import parse_resume
 from ai_service import (
     analyze_resume, optimize_resume,
-    analyze_stream, optimize_stream, cover_letter_stream, rewrite_bullet,
+    analyze_stream, optimize_stream, auto_optimize_stream, cover_letter_stream, rewrite_bullet,
     DEFAULT_MODEL,
 )
 from pdf_generator import build_pdf, build_cover_letter_pdf, build_html
@@ -271,6 +271,55 @@ async def optimize_stream_endpoint(payload: OptimizeRequest, user_id: str = Depe
             yield _sse({"type": "error", "error": str(e)})
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+class AutoOptimizeRequest(BaseModel):
+    analysis_id: str
+    target_score: Optional[int] = 90
+
+
+@api.post("/auto-optimize-stream")
+async def auto_optimize_stream_endpoint(payload: AutoOptimizeRequest, user_id: str = Depends(get_current_user)):
+    row = await db.analyses.find_one({"id": payload.analysis_id, "user_id": user_id})
+    if not row:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    resume = await db.resumes.find_one({"id": row["resume_id"], "user_id": user_id})
+    if not resume:
+        raise HTTPException(status_code=404, detail="Original resume not found")
+
+    start_text = (row.get("optimization") or {}).get("optimized_resume") or resume["text"]
+
+    async def gen():
+        final = None
+        try:
+            async for ev in auto_optimize_stream(
+                start_text, row["job_title"], row["job_description"],
+                target_score=payload.target_score or 90,
+                model_key=row.get("model", DEFAULT_MODEL)
+            ):
+                if ev.get("type") in ("delta", "status", "pass_done"):
+                    yield _sse(ev)
+                elif ev.get("type") == "error":
+                    yield _sse({"type": "error", "error": ev["error"]}); return
+                elif ev.get("type") == "result":
+                    final = ev.get("parsed") or {}
+            if not final or "optimized_resume" not in final:
+                yield _sse({"type": "error", "error": "AI returned an invalid response"}); return
+
+            await db.analyses.update_one(
+                {"id": payload.analysis_id},
+                {"$set": {
+                    "optimization": {**final, "auto_boosted": True},
+                    "original_resume_text": resume["text"],
+                    "optimized_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+            yield _sse({"type": "done", "analysis_id": payload.analysis_id, "original_resume_text": resume["text"], "result": final})
+        except Exception as e:
+            yield _sse({"type": "error", "error": str(e)})
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=SSE_HEADERS)
+
 
 
 # ---------------- Cover letter (streaming + PDF) ----------------

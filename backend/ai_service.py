@@ -432,3 +432,66 @@ async def rewrite_bullet(
 
     return {"rewritten_bullet": res}
 
+
+async def auto_optimize_stream(
+    resume_text: str,
+    job_title: str,
+    job_description: str,
+    target_score: int = 90,
+    max_passes: int = 3,
+    model_key: str = DEFAULT_MODEL
+) -> AsyncGenerator[Dict[str, Any], None]:
+    current_text = resume_text
+    current_score = 0
+    all_changes = []
+    pass_num = 0
+
+    for pass_num in range(1, max_passes + 1):
+        yield {"type": "status", "text": f"Iteration {pass_num}/{max_passes}: Targeting {target_score}+ ATS score..."}
+        
+        prompt = OPTIMIZE_PROMPT.format(
+            job_title=job_title,
+            job_description=job_description,
+            resume_text=current_text[:12000],
+            aggressive="true" if pass_num > 1 else "false",
+        )
+        
+        parsed_res = {}
+        async for ev in _run_stream(OPTIMIZE_SYSTEM, prompt, model_key):
+            if ev.get("type") == "delta":
+                yield ev
+            elif ev.get("type") == "result":
+                parsed_res = ev.get("parsed") or {}
+
+        opt_text = (parsed_res.get("optimized_resume") or "").strip()
+        pred_score = parsed_res.get("predicted_ats_score") or 0
+        changes = parsed_res.get("changes_summary") or []
+        
+        if opt_text:
+            current_text = opt_text
+            det = analyze_deterministic(current_text, job_title, job_description)
+            current_score = max(pred_score, det["ats_score"])
+            all_changes.extend(changes)
+
+        yield {
+            "type": "pass_done",
+            "pass": pass_num,
+            "ats_score": current_score,
+            "optimized_resume": current_text,
+            "changes_summary": list(dict.fromkeys(all_changes)),
+        }
+
+        if current_score >= target_score:
+            break
+
+    yield {
+        "type": "result",
+        "parsed": {
+            "optimized_resume": current_text,
+            "predicted_ats_score": current_score,
+            "changes_summary": list(dict.fromkeys(all_changes)),
+            "passes_completed": pass_num,
+        }
+    }
+
+
