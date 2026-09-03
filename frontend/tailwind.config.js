@@ -6,7 +6,12 @@ module.exports = {
     "./public/index.html"
   ],
   theme: {
-    extend: {
+      fontFamily: {
+        sans: ['Sora', 'IBM Plex Sans', 'sans-serif'],
+        display: ['Outfit', 'sans-serif'],
+        mono: ['IBM Plex Mono', 'monospace'],
+        sora: ['Sora', 'sans-serif'],
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
