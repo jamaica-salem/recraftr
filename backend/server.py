@@ -124,7 +124,8 @@ async def delete_resume(resume_id: str, user_id: str = Depends(get_current_user)
 
 # ---------------- Non-streaming analyze/optimize (kept for compare) ----------------
 class AnalyzeRequest(BaseModel):
-    resume_id: str
+    resume_id: Optional[str] = None
+    resume_text: Optional[str] = None
     job_title: str
     job_description: str
     model: Optional[str] = DEFAULT_MODEL
@@ -132,12 +133,23 @@ class AnalyzeRequest(BaseModel):
 
 @api.post("/analyze")
 async def analyze(payload: AnalyzeRequest, user_id: str = Depends(get_current_user)):
-    resume = await db.resumes.find_one({"id": payload.resume_id, "user_id": user_id})
-    if not resume:
-        raise HTTPException(status_code=404, detail="Resume not found")
+    resume_text = payload.resume_text
+    resume_filename = "optimized_resume.pdf"
+    resume_id = payload.resume_id
+
+    if payload.resume_id:
+        resume = await db.resumes.find_one({"id": payload.resume_id, "user_id": user_id})
+        if not resume:
+            raise HTTPException(status_code=404, detail="Resume not found")
+        resume_text = resume["text"]
+        resume_filename = resume.get("filename")
+
+    if not resume_text or len(resume_text.strip()) < 20:
+        raise HTTPException(status_code=400, detail="Resume text or resume_id is required")
+
     try:
         result = await analyze_resume(
-            resume["text"], payload.job_title, payload.job_description, payload.model or DEFAULT_MODEL
+            resume_text, payload.job_title, payload.job_description, payload.model or DEFAULT_MODEL
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI analysis failed: {e}")
@@ -147,7 +159,7 @@ async def analyze(payload: AnalyzeRequest, user_id: str = Depends(get_current_us
     analysis_id = str(uuid.uuid4())
     await db.analyses.insert_one({
         "id": analysis_id, "user_id": user_id,
-        "resume_id": payload.resume_id, "resume_filename": resume.get("filename"),
+        "resume_id": resume_id or analysis_id, "resume_filename": resume_filename,
         "job_title": payload.job_title, "job_description": payload.job_description,
         "model": payload.model or DEFAULT_MODEL,
         "analysis": result, "optimization": None,
@@ -200,15 +212,25 @@ SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connecti
 
 @api.post("/analyze-stream")
 async def analyze_stream_endpoint(payload: AnalyzeRequest, user_id: str = Depends(get_current_user)):
-    resume = await db.resumes.find_one({"id": payload.resume_id, "user_id": user_id})
-    if not resume:
-        raise HTTPException(status_code=404, detail="Resume not found")
+    resume_text = payload.resume_text
+    resume_filename = "optimized_resume.pdf"
+    resume_id = payload.resume_id
+
+    if payload.resume_id:
+        resume = await db.resumes.find_one({"id": payload.resume_id, "user_id": user_id})
+        if not resume:
+            raise HTTPException(status_code=404, detail="Resume not found")
+        resume_text = resume["text"]
+        resume_filename = resume.get("filename")
+
+    if not resume_text or len(resume_text.strip()) < 20:
+        raise HTTPException(status_code=400, detail="Resume text or resume_id is required")
 
     async def gen():
         final = None
         try:
             async for ev in analyze_stream(
-                resume["text"], payload.job_title, payload.job_description, payload.model or DEFAULT_MODEL
+                resume_text, payload.job_title, payload.job_description, payload.model or DEFAULT_MODEL
             ):
                 if ev.get("type") == "delta":
                     yield _sse({"type": "delta", "text": ev["text"]})
@@ -221,7 +243,7 @@ async def analyze_stream_endpoint(payload: AnalyzeRequest, user_id: str = Depend
             analysis_id = str(uuid.uuid4())
             await db.analyses.insert_one({
                 "id": analysis_id, "user_id": user_id,
-                "resume_id": payload.resume_id, "resume_filename": resume.get("filename"),
+                "resume_id": resume_id or analysis_id, "resume_filename": resume_filename,
                 "job_title": payload.job_title, "job_description": payload.job_description,
                 "model": payload.model or DEFAULT_MODEL,
                 "analysis": final, "optimization": None,

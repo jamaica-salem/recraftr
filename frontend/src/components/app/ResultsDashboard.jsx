@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { RESUME } from "@/constants/testIds";
 import { API, useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { Copy, Download, Sparkles, CheckCircle2, Circle, AlertCircle, Mail, Code, Sparkle, Kanban, BookmarkPlus } from "lucide-react";
+import { Copy, Download, Sparkles, CheckCircle2, Circle, AlertCircle, Mail, Code, Sparkle, Kanban, BookmarkPlus, BarChart2 } from "lucide-react";
 import ExportModal from "@/components/ExportModal";
 import InteractiveBulletEditor from "@/components/app/InteractiveBulletEditor";
 
@@ -105,7 +105,8 @@ function SimpleDiff({ before, after }) {
 
 export default function ResultsDashboard({
   analysis, optimization, originalResumeText, coverLetter,
-  onOptimize, onAutoOptimize, onGenerateCoverLetter, optimizing, autoOptimizing, coverLoading,
+  onOptimize, onAutoOptimize, onGenerateCoverLetter, onReEvaluateATS,
+  optimizing, autoOptimizing, coverLoading, reEvaluating,
 }) {
   const { token, user } = useAuth();
   const [tab, setTab] = useState("overview");
@@ -341,14 +342,36 @@ export default function ResultsDashboard({
                       </span>
                     )}
                   </div>
-                  <div className="text-sm text-neutral-400">
-                    Predicted ATS: <span className="text-[#4ADE80] font-medium">{optimization.predicted_ats_score ?? "—"}</span>
+                  <div className="flex items-center gap-3 text-sm text-neutral-400 flex-wrap">
+                    <span>
+                      Predicted ATS: <span className="text-[#4ADE80] font-medium">{optimization.predicted_ats_score ?? "—"}</span>
+                    </span>
+                    {optimization.actual_ats_score !== undefined && (
+                      <>
+                        <span className="text-neutral-600">•</span>
+                        <span>
+                          Evaluated Real ATS: <span className="text-[#4ADE80] font-bold text-base">{optimization.actual_ats_score}/100</span>
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
                   <Button
+                    type="button"
+                    data-testid={RESUME.reEvaluateAtsBtn}
+                    onClick={() => onReEvaluateATS && onReEvaluateATS(activeResumeText)}
+                    disabled={optimizing || autoOptimizing || reEvaluating}
+                    variant="outline"
+                    className="bg-[#0A2C1A] border-[#16A34A]/40 text-[#4ADE80] hover:bg-[#16A34A] hover:text-white rounded-full text-xs px-4 h-9 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                  >
+                    <BarChart2 className="w-3.5 h-3.5" />
+                    <span>{reEvaluating ? "Evaluating Real ATS..." : "Check Real ATS Score"}</span>
+                  </Button>
+
+                  <Button
                     onClick={onAutoOptimize}
-                    disabled={optimizing || autoOptimizing}
+                    disabled={optimizing || autoOptimizing || reEvaluating}
                     className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-semibold rounded-full px-4 h-9 shadow border border-amber-400/30 flex items-center gap-1.5"
                   >
                     <Sparkles className="w-3.5 h-3.5 text-amber-200 fill-amber-200" />

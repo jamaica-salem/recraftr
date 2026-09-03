@@ -20,6 +20,7 @@ export const RESUME = {
 
   analyzeBtn: "analyze-resume-btn",
   optimizeBtn: "optimize-resume-btn",
+  reEvaluateAtsBtn: "reevaluate-ats-btn",
 
   loadingState: "loading-state",
   streamPreview: "stream-preview",

@@ -279,6 +279,47 @@ Requirements & Qualifications:
     }
   };
 
+  const runReEvaluateATS = async (customResumeText) => {
+    const textToAnalyze = customResumeText || optimization?.optimized_resume || originalText;
+    if (!textToAnalyze || textToAnalyze.trim().length < 30) {
+      toast.error("No valid resume text to evaluate.");
+      return;
+    }
+    if (!jobTitle.trim() || !jobDesc.trim()) {
+      toast.error("Job title and job description are required for ATS evaluation.");
+      return;
+    }
+    setLoading("re_evaluate");
+    setStreamText("");
+    try {
+      let saved = null;
+      await streamPost(
+        `${API}/analyze-stream`,
+        { resume_text: textToAnalyze, job_title: jobTitle, job_description: jobDesc, model },
+        authHeaders,
+        (ev) => {
+          if (ev.type === "delta") setStreamText((prev) => prev + ev.text);
+          else if (ev.type === "done") saved = { analysis_id: ev.analysis_id, ...(ev.result || {}) };
+          else if (ev.type === "error") throw new Error(ev.error);
+        },
+      );
+      if (saved) {
+        setAnalysis(saved);
+        if (optimization) {
+          setOptimization((prev) => ({
+            ...prev,
+            actual_ats_score: saved.ats_score,
+          }));
+        }
+        toast.success(`Evaluated Real ATS score: ${saved.ats_score}/100!`);
+      }
+    } catch (e) {
+      toast.error(e?.message || "ATS re-evaluation failed");
+    } finally {
+      setLoading(null);
+    }
+  };
+
   return (
     <>
       <AppHeader />
@@ -413,9 +454,11 @@ Requirements & Qualifications:
             onOptimize={runOptimize}
             onAutoOptimize={runAutoOptimize}
             onGenerateCoverLetter={runCoverLetter}
+            onReEvaluateATS={runReEvaluateATS}
             optimizing={loading === "optimize"}
             autoOptimizing={loading === "auto_optimize"}
             coverLoading={loading === "cover"}
+            reEvaluating={loading === "re_evaluate"}
           />
         )}
       </main>
