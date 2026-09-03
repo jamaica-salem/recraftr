@@ -89,8 +89,11 @@ async def upload_resume(
         text = parse_resume(file.filename or "resume", contents)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse resume: {e}")
-    if len(text.strip()) < 40:
-        raise HTTPException(status_code=400, detail="Could not extract enough text from the file")
+    if len(text.strip()) < 20:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not extract text from the file. Please ensure it contains selectable text (not scanned images)."
+        )
 
     resume_id = str(uuid.uuid4())
     await db.resumes.insert_one({

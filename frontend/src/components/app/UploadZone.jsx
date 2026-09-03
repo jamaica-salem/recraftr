@@ -33,7 +33,16 @@ export default function UploadZone({ onUploaded, uploaded, onClear, onLoadSample
       onUploaded(res.data);
       toast.success("Resume uploaded and parsed");
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Upload failed");
+      const detail = e?.response?.data?.detail;
+      const msg =
+        typeof detail === "string"
+          ? detail
+          : Array.isArray(detail)
+          ? detail[0]?.msg || "Invalid upload parameters"
+          : typeof detail === "object" && detail !== null
+          ? JSON.stringify(detail)
+          : e?.message || "Upload failed";
+      toast.error(msg);
     } finally {
       setBusy(false);
     }
