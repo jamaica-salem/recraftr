@@ -1,12 +1,12 @@
 import React, { useRef, useState } from "react";
-import { UploadCloud, FileCheck2, X } from "lucide-react";
+import { UploadCloud, FileCheck2, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import axios from "axios";
 import { API, useAuth } from "@/context/AuthContext";
 import { RESUME } from "@/constants/testIds";
 import { Button } from "@/components/ui/button";
 
-export default function UploadZone({ onUploaded, uploaded, onClear }) {
+export default function UploadZone({ onUploaded, uploaded, onClear, onLoadSample }) {
   const { authHeaders } = useAuth();
   const inputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
@@ -86,7 +86,7 @@ export default function UploadZone({ onUploaded, uploaded, onClear }) {
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
-      className={`border-2 border-dashed rounded-xl p-10 lg:p-12 cursor-pointer transition-colors duration-200 ${
+      className={`border-2 border-dashed rounded-xl p-8 lg:p-10 cursor-pointer transition-colors duration-200 ${
         dragOver ? "border-[#2563EB] bg-[#0E1830]" : "border-[#404040] bg-[#141414] hover:bg-[#1A1A1A]"
       }`}
     >
@@ -98,7 +98,7 @@ export default function UploadZone({ onUploaded, uploaded, onClear }) {
         className="hidden"
         onChange={(e) => uploadFile(e.target.files?.[0])}
       />
-      <div className="flex flex-col items-start gap-4">
+      <div className="flex flex-col items-start gap-4 w-full">
         <div className="w-12 h-12 rounded-lg bg-[#1F1F1F] border border-[#262626] flex items-center justify-center">
           <UploadCloud className="w-6 h-6 text-[#2563EB]" strokeWidth={1.75} />
         </div>
@@ -111,7 +111,28 @@ export default function UploadZone({ onUploaded, uploaded, onClear }) {
             PDF or DOCX, up to 5 MB. Or click to browse.
           </div>
         </div>
+
+        {onLoadSample && (
+          <div className="pt-3 border-t border-[#1F1F1F] w-full mt-1 flex items-center justify-between gap-3">
+            <span className="text-xs text-neutral-500">No file ready?</span>
+            <Button
+              type="button"
+              data-testid={RESUME.loadSampleBtn}
+              variant="outline"
+              disabled={busy}
+              onClick={(e) => {
+                e.stopPropagation();
+                onLoadSample();
+              }}
+              className="bg-[#1A1A1A] border-[#262626] text-[#F5F5F5] hover:bg-[#2563EB] hover:border-[#2563EB] hover:text-white rounded-lg text-xs h-8 px-3 flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+              <span>Load Sample Resume & JD</span>
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+

@@ -9,6 +9,7 @@ export const RESUME = {
   uploadInput: "upload-resume-input",
   uploadedFile: "uploaded-file-name",
   uploadRemove: "upload-remove-btn",
+  loadSampleBtn: "load-sample-btn",
 
   jobTitleInput: "job-title-input",
   jobDescInput: "job-description-input",

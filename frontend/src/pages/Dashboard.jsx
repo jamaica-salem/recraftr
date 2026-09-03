@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sparkles, Play } from "lucide-react";
+import axios from "axios";
 import { API, useAuth } from "@/context/AuthContext";
 import { streamPost } from "@/lib/stream";
 import { RESUME } from "@/constants/testIds";
@@ -32,8 +33,78 @@ export default function Dashboard() {
   const [originalText, setOriginalText] = useState("");
   const [coverLetter, setCoverLetter] = useState("");
 
-  const [loading, setLoading] = useState(null); // "analyze" | "optimize" | "cover"
+  const [loading, setLoading] = useState(null); // "analyze" | "optimize" | "cover" | "sample"
   const [streamText, setStreamText] = useState("");
+
+  const handleLoadSample = async () => {
+    const sampleResumeText = `Alex Morgan
+Senior Full Stack Engineer
+alex.morgan@email.com | (555) 019-2834 | San Francisco, CA | github.com/alexmorgan
+
+SUMMARY
+Experienced Full Stack Engineer with 6+ years of expertise in building scalable web applications, microservices, and cloud architectures. Proven track record in React, Node.js, Python, and AWS.
+
+EXPERIENCE
+Senior Software Engineer | TechCorp Inc. | 2022 - Present
+- Architected and deployed microservices handling 2M+ daily active requests using Node.js, FastAPI, and PostgreSQL.
+- Led frontend migration from legacy stack to React 18 and Tailwind CSS, improving core web vitals LCP by 45%.
+- Implemented CI/CD pipelines with GitHub Actions and Docker, reducing release cycle time from 3 days to 30 minutes.
+
+Full Stack Developer | CloudScale Solutions | 2019 - 2022
+- Developed interactive analytics dashboards for enterprise client managing $50M+ in quarterly revenues.
+- Integrated OpenAI & Gemini API services for automated report generation, increasing client engagement by 30%.
+- Optimized MongoDB database queries and indexing, cutting median API response latency from 450ms to 85ms.
+
+SKILLS
+- Languages: JavaScript (ES6+), TypeScript, Python, HTML5, CSS3, SQL
+- Frontend: React, Redux, Next.js, Tailwind CSS, REST APIs, WebSockets
+- Backend: Node.js, Express, FastAPI, PostgreSQL, MongoDB, Redis
+- DevOps & Cloud: AWS (EC2, S3, Lambda), Docker, GitHub Actions, CI/CD
+
+EDUCATION
+B.S. in Computer Science | University of California, Berkeley | 2015 - 2019`;
+
+    const sampleJobTitle = "Senior Full Stack Engineer";
+    const sampleJobDesc = `We are seeking a Senior Full Stack Engineer to lead the design and implementation of next-generation AI-powered web applications. In this role, you will work closely with product and data science teams to deliver highly scalable backend services and responsive frontend interfaces.
+
+Key Responsibilities:
+- Design, build, and maintain scalable web applications using React, TypeScript, Python (FastAPI/Django), and Node.js.
+- Architect real-time streaming architectures and AI integrations using OpenAI, Gemini, and vector databases.
+- Optimize database performance across PostgreSQL, MongoDB, and Redis caching layers.
+- Drive engineering best practices, code reviews, automated testing, and CI/CD deployment pipelines on AWS/Docker.
+- Collaborate with product managers and UX designers to craft intuitive, performant user interfaces.
+
+Requirements & Qualifications:
+- 5+ years of experience building production web applications as a Full Stack Engineer.
+- Proficiency with React, TypeScript, Python (FastAPI or Django), and Node.js.
+- Deep hands-on experience with cloud infrastructure (AWS/GCP), Docker containers, and CI/CD pipelines.
+- Experience with AI model integration, real-time SSE/WebSockets streaming, and LLM APIs.
+- Strong analytical skills, performance optimization mindset, and passion for clean, readable code.`;
+
+    try {
+      setLoading("sample");
+      const blob = new Blob([sampleResumeText], { type: "application/pdf" });
+      const file = new File([blob], "sample_resume_alex_morgan.pdf", { type: "application/pdf" });
+      const form = new FormData();
+      form.append("file", file);
+
+      const res = await axios.post(`${API}/upload-resume`, form, {
+        headers: { ...authHeaders, "Content-Type": "multipart/form-data" },
+      });
+
+      setUploaded(res.data);
+      setJobTitle(sampleJobTitle);
+      setJobDesc(sampleJobDesc);
+      setAnalysis(null);
+      setOptimization(null);
+      setCoverLetter("");
+      toast.success("Loaded sample resume & job description! Click 'Analyze Resume' to test.");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed to load sample resume");
+    } finally {
+      setLoading(null);
+    }
+  };
 
   // Load a past analysis when redirected from History
   useEffect(() => {
@@ -232,6 +303,7 @@ export default function Dashboard() {
               uploaded={uploaded}
               onUploaded={setUploaded}
               onClear={() => { setUploaded(null); setAnalysis(null); setOptimization(null); setCoverLetter(""); }}
+              onLoadSample={handleLoadSample}
             />
           </div>
 
