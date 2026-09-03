@@ -17,6 +17,11 @@ import {
   Download,
   Notebook,
   GripVertical,
+  Bookmark,
+  Mic,
+  Trophy,
+  XCircle,
+  Mail,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,11 +39,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ExportModal from "@/components/ExportModal";
 
 const KANBAN_STAGES = [
-  { id: "bookmarked", label: "Bookmarked", icon: "📌", color: "border-blue-500/40 bg-blue-500/10 text-blue-400" },
-  { id: "applied", label: "Applied", icon: "📑", color: "border-purple-500/40 bg-purple-500/10 text-purple-400" },
-  { id: "interviewing", label: "Interviewing", icon: "🎙️", color: "border-amber-500/40 bg-amber-500/10 text-amber-400" },
-  { id: "offer", label: "Offer Received", icon: "🎉", color: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" },
-  { id: "rejected", label: "Rejected", icon: "❌", color: "border-rose-500/40 bg-rose-500/10 text-rose-400" },
+  { id: "bookmarked", label: "Bookmarked", icon: Bookmark, color: "text-blue-400" },
+  { id: "applied", label: "Applied", icon: FileText, color: "text-purple-400" },
+  { id: "interviewing", label: "Interviewing", icon: Mic, color: "text-amber-400" },
+  { id: "offer", label: "Offer Received", icon: Trophy, color: "text-emerald-400" },
+  { id: "rejected", label: "Rejected", icon: XCircle, color: "text-rose-400" },
 ];
 
 export default function Tracker() {
@@ -270,6 +275,7 @@ export default function Tracker() {
             {KANBAN_STAGES.map((stage) => {
               const stageItems = items.filter((it) => (it.status || "applied") === stage.id);
               const isOver = dragOverStageId === stage.id;
+              const StageIcon = stage.icon;
               return (
                 <div
                   key={stage.id}
@@ -285,7 +291,7 @@ export default function Tracker() {
                   {/* Column Header */}
                   <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
                     <div className="flex items-center gap-2">
-                      <span className="text-base">{stage.icon}</span>
+                      <StageIcon className={`w-4 h-4 ${stage.color}`} />
                       <span className="text-sm font-bold text-slate-200">{stage.label}</span>
                     </div>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono font-medium">
@@ -350,12 +356,12 @@ export default function Tracker() {
                                 <span className="text-slate-600">No loc</span>
                               )}
 
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-2">
                                 {item.optimized_resume && (
-                                  <span title="Saved Optimized Resume" className="text-xs">📄</span>
+                                  <FileText className="w-3.5 h-3.5 text-blue-400" title="Saved Optimized Resume" />
                                 )}
                                 {item.cover_letter && (
-                                  <span title="Saved Cover Letter" className="text-xs">✉️</span>
+                                  <Mail className="w-3.5 h-3.5 text-indigo-400" title="Saved Cover Letter" />
                                 )}
                               </div>
                             </div>
