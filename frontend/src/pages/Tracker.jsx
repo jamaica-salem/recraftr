@@ -16,6 +16,7 @@ import {
   Copy,
   Download,
   Notebook,
+  GripVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +45,10 @@ export default function Tracker() {
   const { authHeaders, token, user } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Drag and drop states
+  const [draggedItemId, setDraggedItemId] = useState(null);
+  const [dragOverStageId, setDragOverStageId] = useState(null);
 
   // Dialog states
   const [selectedApp, setSelectedApp] = useState(null); // for Package Detail Modal
@@ -134,6 +139,63 @@ export default function Tracker() {
     }
   };
 
+  const handleDragStart = (e, itemId) => {
+    setDraggedItemId(itemId);
+    e.dataTransfer.setData("text/plain", itemId);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e, stageId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverStageId !== stageId) {
+      setDragOverStageId(stageId);
+    }
+  };
+
+  const handleDragLeave = (e, stageId) => {
+    if (dragOverStageId === stageId) {
+      setDragOverStageId(null);
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItemId(null);
+    setDragOverStageId(null);
+  };
+
+  const handleDrop = async (e, targetStageId) => {
+    e.preventDefault();
+    const itemId = e.dataTransfer.getData("text/plain") || draggedItemId;
+    setDraggedItemId(null);
+    setDragOverStageId(null);
+
+    if (!itemId) return;
+
+    const targetItem = items.find((it) => it.id === itemId);
+    if (!targetItem || targetItem.status === targetStageId) return;
+
+    setItems((prev) =>
+      prev.map((item) => (item.id === itemId ? { ...item, status: targetStageId } : item))
+    );
+
+    try {
+      const res = await axios.put(
+        `${API}/applications/${itemId}`,
+        { status: targetStageId },
+        { headers: authHeaders }
+      );
+      setItems((prev) => prev.map((item) => (item.id === itemId ? res.data : item)));
+      const targetStage = KANBAN_STAGES.find((s) => s.id === targetStageId);
+      toast.success(`Moved application to ${targetStage?.label || targetStageId}`);
+    } catch {
+      toast.error("Failed to update application status");
+      setItems((prev) =>
+        prev.map((item) => (item.id === itemId ? targetItem : item))
+      );
+    }
+  };
+
   const handleDelete = async (id, e) => {
     if (e) e.stopPropagation();
     if (!window.confirm("Delete this application from tracker?")) return;
@@ -207,10 +269,18 @@ export default function Tracker() {
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-5">
             {KANBAN_STAGES.map((stage) => {
               const stageItems = items.filter((it) => (it.status || "applied") === stage.id);
+              const isOver = dragOverStageId === stage.id;
               return (
                 <div
                   key={stage.id}
-                  className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-4 flex flex-col min-h-[650px]"
+                  onDragOver={(e) => handleDragOver(e, stage.id)}
+                  onDragLeave={(e) => handleDragLeave(e, stage.id)}
+                  onDrop={(e) => handleDrop(e, stage.id)}
+                  className={`border rounded-xl p-4 flex flex-col min-h-[650px] transition-all duration-200 ${
+                    isOver
+                      ? "bg-indigo-950/40 border-indigo-500/80 ring-2 ring-indigo-500/50 shadow-xl scale-[1.01]"
+                      : "bg-slate-950/80 border-slate-800/80"
+                  }`}
                 >
                   {/* Column Header */}
                   <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
@@ -226,96 +296,109 @@ export default function Tracker() {
                   {/* Column Cards */}
                   <div className="space-y-3 flex-1 overflow-y-auto pr-0.5">
                     {stageItems.length === 0 ? (
-                      <div className="text-xs text-slate-600 italic text-center py-8">
-                        No applications in {stage.label.toLowerCase()}
+                      <div className={`text-xs italic text-center py-12 border-2 border-dashed rounded-lg transition-colors ${
+                        isOver ? "border-indigo-500/50 text-indigo-300 bg-indigo-500/5" : "border-slate-800/60 text-slate-600"
+                      }`}>
+                        {isOver ? "Drop application here" : `No applications in ${stage.label.toLowerCase()}`}
                       </div>
                     ) : (
-                      stageItems.map((item) => (
-                        <div
-                          key={item.id}
-                          onClick={() => {
-                            setSelectedApp(item);
-                            setDetailNotes(item.notes || "");
-                          }}
-                          className="group bg-slate-900/90 border border-slate-800 rounded-lg p-4 cursor-pointer hover:border-indigo-500/50 hover:bg-slate-900 transition-all shadow-md relative"
-                        >
-                          {/* Company & Title */}
-                          <div className="flex items-start justify-between gap-2 mb-2">
-                            <div>
-                              <div className="text-xs font-semibold text-indigo-300 flex items-center gap-1 mb-0.5">
-                                <Building2 className="w-3 h-3 text-indigo-400" />
-                                <span className="truncate max-w-[140px]">{item.company_name}</span>
+                      stageItems.map((item) => {
+                        const isDraggingThis = draggedItemId === item.id;
+                        return (
+                          <div
+                            key={item.id}
+                            draggable={true}
+                            onDragStart={(e) => handleDragStart(e, item.id)}
+                            onDragEnd={handleDragEnd}
+                            onClick={() => {
+                              setSelectedApp(item);
+                              setDetailNotes(item.notes || "");
+                            }}
+                            className={`group bg-slate-900/90 border rounded-lg p-4 cursor-grab active:cursor-grabbing hover:border-indigo-500/50 hover:bg-slate-900 transition-all shadow-md relative ${
+                              isDraggingThis
+                                ? "opacity-40 border-dashed border-indigo-400 scale-[0.98]"
+                                : "border-slate-800"
+                            }`}
+                          >
+                            {/* Company & Title */}
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <div>
+                                <div className="text-xs font-semibold text-indigo-300 flex items-center gap-1 mb-0.5">
+                                  <GripVertical className="w-3.5 h-3.5 text-slate-600 group-hover:text-indigo-400 flex-shrink-0 cursor-grab" />
+                                  <Building2 className="w-3 h-3 text-indigo-400" />
+                                  <span className="truncate max-w-[130px]">{item.company_name}</span>
+                                </div>
+                                <div className="text-sm font-bold text-white line-clamp-1">
+                                  {item.job_title}
+                                </div>
                               </div>
-                              <div className="text-sm font-bold text-white line-clamp-1">
-                                {item.job_title}
-                              </div>
-                            </div>
-                            {item.ats_score != null && (
-                              <span className="text-[11px] font-bold px-2 py-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-400">
-                                {item.ats_score}%
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Location & Package indicators */}
-                          <div className="flex items-center justify-between text-[11px] text-slate-400 mt-3 pt-2 border-t border-slate-800/60">
-                            {item.location ? (
-                              <span className="flex items-center gap-1 text-slate-500">
-                                <MapPin className="w-3 h-3" />
-                                <span className="truncate max-w-[90px]">{item.location}</span>
-                              </span>
-                            ) : (
-                              <span className="text-slate-600">No loc</span>
-                            )}
-
-                            <div className="flex items-center gap-1.5">
-                              {item.optimized_resume && (
-                                <span title="Saved Optimized Resume" className="text-xs">📄</span>
-                              )}
-                              {item.cover_letter && (
-                                <span title="Saved Cover Letter" className="text-xs">✉️</span>
+                              {item.ats_score != null && (
+                                <span className="text-[11px] font-bold px-2 py-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 flex-shrink-0">
+                                  {item.ats_score}%
+                                </span>
                               )}
                             </div>
-                          </div>
 
-                          {/* Hover Stage Quick Controls */}
-                          <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-800/80">
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  updateStage(item.id, item.status, -1);
-                                }}
-                                title="Move left"
-                                className="p-1 rounded text-slate-500 hover:text-white hover:bg-slate-800 disabled:opacity-30"
-                              >
-                                <ChevronLeft className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  updateStage(item.id, item.status, 1);
-                                }}
-                                title="Move right"
-                                className="p-1 rounded text-slate-500 hover:text-white hover:bg-slate-800 disabled:opacity-30"
-                              >
-                                <ChevronRight className="w-3.5 h-3.5" />
-                              </button>
+                            {/* Location & Package indicators */}
+                            <div className="flex items-center justify-between text-[11px] text-slate-400 mt-3 pt-2 border-t border-slate-800/60">
+                              {item.location ? (
+                                <span className="flex items-center gap-1 text-slate-500">
+                                  <MapPin className="w-3 h-3" />
+                                  <span className="truncate max-w-[90px]">{item.location}</span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-600">No loc</span>
+                              )}
+
+                              <div className="flex items-center gap-1.5">
+                                {item.optimized_resume && (
+                                  <span title="Saved Optimized Resume" className="text-xs">📄</span>
+                                )}
+                                {item.cover_letter && (
+                                  <span title="Saved Cover Letter" className="text-xs">✉️</span>
+                                )}
+                              </div>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={(e) => handleDelete(item.id, e)}
-                              className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800"
-                              title="Delete application"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {/* Hover Stage Quick Controls */}
+                            <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-800/80">
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    updateStage(item.id, item.status, -1);
+                                  }}
+                                  title="Move left"
+                                  className="p-1 rounded text-slate-500 hover:text-white hover:bg-slate-800 disabled:opacity-30"
+                                >
+                                  <ChevronLeft className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    updateStage(item.id, item.status, 1);
+                                  }}
+                                  title="Move right"
+                                  className="p-1 rounded text-slate-500 hover:text-white hover:bg-slate-800 disabled:opacity-30"
+                                >
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={(e) => handleDelete(item.id, e)}
+                                className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800"
+                                title="Delete application"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
