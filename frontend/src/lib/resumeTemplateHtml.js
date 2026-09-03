@@ -9,6 +9,17 @@ const SECTION_HEADERS = new Set([
 ]);
 
 const PRESET_CONFIGS = {
+  jamaica: {
+    primaryColor: "#0A0A0A",
+    secondaryColor: "#171717",
+    bodyColor: "#171717",
+    fontFamily: "Times-Roman",
+    headerAlign: "center",
+    fontSizeBody: 9.5,
+    margin: "28px 24px",
+    hasDivider: true,
+    headerBorderDouble: true,
+  },
   classic: {
     primaryColor: "#0A0A0A",
     secondaryColor: "#404040",
@@ -61,10 +72,10 @@ function escapeHtml(str = "") {
 export function generateResumeHtmlPreview(
   text = "",
   type = "resume", // "resume" or "cover_letter"
-  template = "modern",
+  template = "jamaica",
   customStyles = {}
 ) {
-  const base = { ...(PRESET_CONFIGS[template] || PRESET_CONFIGS.classic) };
+  const base = { ...(PRESET_CONFIGS[template] || PRESET_CONFIGS.jamaica) };
 
   if (customStyles?.primary_color) base.primaryColor = customStyles.primary_color;
   if (customStyles?.font_family) base.fontFamily = customStyles.font_family;
@@ -97,6 +108,8 @@ export function generateResumeHtmlPreview(
     }
   }
 
+  const isDoubleHeader = base.headerBorderDouble || (base.headerAlign === "center" && base.fontFamily === "Times-Roman");
+
   const htmlParts = [];
   htmlParts.push(`<!DOCTYPE html>
 <html lang="en">
@@ -115,15 +128,15 @@ export function generateResumeHtmlPreview(
   .header {
     text-align: ${base.headerAlign};
     margin-bottom: 16px;
-    border-bottom: ${base.hasDivider ? `2px solid ${base.primaryColor}` : "none"};
-    padding-bottom: ${base.hasDivider ? "10px" : "0"};
+    ${isDoubleHeader ? `border-top: 1px solid ${base.primaryColor}; border-bottom: 1px solid ${base.primaryColor}; padding: 6px 0;` : (base.hasDivider ? `border-bottom: 2px solid ${base.primaryColor}; padding-bottom: 10px;` : "")}
   }
   .name {
-    font-size: 22px;
+    font-size: 24px;
     font-weight: 700;
     color: ${base.primaryColor};
-    margin: 0 0 4px 0;
+    margin: 0 0 6px 0;
     line-height: 1.2;
+    letter-spacing: 0.5px;
   }
   .contact {
     font-size: 13px;
@@ -134,12 +147,26 @@ export function generateResumeHtmlPreview(
     font-size: 14px;
     font-weight: 700;
     color: ${base.primaryColor};
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
     margin-top: 18px;
-    margin-bottom: 6px;
-    border-bottom: ${base.hasDivider ? `1px solid ${base.primaryColor}` : "none"};
-    padding-bottom: ${base.hasDivider ? "3px" : "0"};
+    margin-bottom: 4px;
+    border-bottom: 1px solid ${base.primaryColor};
+    padding-bottom: 2px;
+  }
+  .two-col {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-top: 4px;
+    margin-bottom: 2px;
+  }
+  .two-col-left {
+    font-size: ${base.fontSizeBody}pt;
+    font-weight: 700;
+  }
+  .two-col-right {
+    font-size: ${base.fontSizeBody}pt;
+    font-style: italic;
+    text-align: right;
   }
   ul {
     margin: 4px 0 10px 18px;
@@ -159,15 +186,26 @@ export function generateResumeHtmlPreview(
 `);
 
   if (nameLine || contactLines.length > 0) {
-    htmlParts.push('<div class="header">');
-    if (nameLine) htmlParts.push(`  <h1 class="name">${escapeHtml(nameLine)}</h1>`);
-    if (contactLines.length > 0) {
-      htmlParts.push(`  <p class="contact">${escapeHtml(contactLines.join(" | "))}</p>`);
+    if (isDoubleHeader) {
+      if (nameLine) htmlParts.push(`  <h1 class="name" style="text-align:center">${escapeHtml(nameLine)}</h1>`);
+      htmlParts.push('<div class="header">');
+      if (contactLines.length > 0) {
+        htmlParts.push(`  <p class="contact">${escapeHtml(contactLines.join(" | "))}</p>`);
+      }
+      htmlParts.push("</div>");
+    } else {
+      htmlParts.push('<div class="header">');
+      if (nameLine) htmlParts.push(`  <h1 class="name">${escapeHtml(nameLine)}</h1>`);
+      if (contactLines.length > 0) {
+        htmlParts.push(`  <p class="contact">${escapeHtml(contactLines.join(" | "))}</p>`);
+      }
+      htmlParts.push("</div>");
     }
-    htmlParts.push("</div>");
   }
 
+  let currentSection = "";
   let inList = false;
+
   for (let i = bodyStart; i < lines.length; i++) {
     const s = lines[i].trim();
     if (!s) {
@@ -183,19 +221,64 @@ export function generateResumeHtmlPreview(
         htmlParts.push("</ul>");
         inList = false;
       }
-      htmlParts.push(`<div class="section-title">${escapeHtml(upper)}</div>`);
-    } else if (/^[-\u2022*]\s*/.test(s)) {
+      currentSection = upper;
+      const secTitle = base.fontFamily === "Times-Roman" ? upper.charAt(0) + upper.slice(1).toLowerCase() : upper;
+      htmlParts.push(`<div class="section-title">${escapeHtml(secTitle)}</div>`);
+      continue;
+    }
+
+    const isBullet = /^[-\u2022*]\s*/.test(s);
+    const bulletText = isBullet ? s.replace(/^[-\u2022*]\s*/, "") : s;
+
+    if (bulletText.includes("|") && !isBullet) {
+      const parts = bulletText.split("|").map((p) => p.trim());
+      if (parts.length >= 2) {
+        if (inList) {
+          htmlParts.push("</ul>");
+          inList = false;
+        }
+        const leftText = parts.slice(0, -1).join(" | ");
+        const rightText = parts[parts.length - 1];
+        htmlParts.push(`<div class="two-col"><span class="two-col-left">${escapeHtml(leftText)}</span><span class="two-col-right">${escapeHtml(rightText)}</span></div>`);
+        continue;
+      }
+    }
+
+    if (isBullet && bulletText.includes("|")) {
+      const parts = bulletText.split("|").map((p) => p.trim());
+      if (parts.length >= 2) {
+        if (inList) {
+          htmlParts.push("</ul>");
+          inList = false;
+        }
+        const leftText = "• " + parts.slice(0, -1).join(" | ");
+        const rightText = parts[parts.length - 1];
+        htmlParts.push(`<div class="two-col"><span style="font-size:${base.fontSizeBody}pt">${escapeHtml(leftText)}</span><span class="two-col-right">${escapeHtml(rightText)}</span></div>`);
+        continue;
+      }
+    }
+
+    if (isBullet) {
       if (!inList) {
         htmlParts.push("<ul>");
         inList = true;
       }
-      htmlParts.push(`  <li>${escapeHtml(s.replace(/^[-\u2022*]\s*/, ""))}</li>`);
+      htmlParts.push(`  <li>${escapeHtml(bulletText)}</li>`);
     } else {
       if (inList) {
         htmlParts.push("</ul>");
         inList = false;
       }
-      htmlParts.push(`<p>${escapeHtml(s)}</p>`);
+      if (s.includes(":") && currentSection === "SKILLS") {
+        const idx = s.indexOf(":");
+        const cat = s.substring(0, idx).trim();
+        const rest = s.substring(idx + 1).trim();
+        htmlParts.push(`<p><strong>${escapeHtml(cat)}:</strong> ${escapeHtml(rest)}</p>`);
+      } else if (currentSection === "EDUCATION" && !s.toUpperCase().includes(s)) {
+        htmlParts.push(`<p><em>${escapeHtml(s)}</em></p>`);
+      } else {
+        htmlParts.push(`<p>${escapeHtml(s)}</p>`);
+      }
     }
   }
 
@@ -204,3 +287,4 @@ export function generateResumeHtmlPreview(
 
   return htmlParts.join("\n");
 }
+

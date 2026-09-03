@@ -1,16 +1,29 @@
 """Generate styled ATS-friendly PDFs and HTML exports for resume and cover letter."""
 import io
+import re
 from typing import Optional, Dict, Any
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.colors import HexColor
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
-from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
+from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 
 SECTION_HEADERS = {"SUMMARY", "SKILLS", "EXPERIENCE", "EDUCATION", "PROJECTS", "CERTIFICATIONS", "AWARDS"}
 
 PRESET_CONFIGS = {
+    "jamaica": {
+        "primary_color": "#0A0A0A",
+        "secondary_color": "#171717",
+        "body_color": "#171717",
+        "font_family": "Times-Roman",
+        "header_align": "center",
+        "font_size_body": 9.5,
+        "leading_body": 13.0,
+        "margin": 0.5,
+        "has_divider": True,
+        "header_border_double": True,
+    },
     "classic": {
         "primary_color": "#0A0A0A",
         "secondary_color": "#404040",
@@ -58,9 +71,9 @@ PRESET_CONFIGS = {
 }
 
 
-def _resolve_config(template_name: Optional[str] = "classic", custom_styles: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    t_name = (template_name or "classic").lower()
-    base = dict(PRESET_CONFIGS.get(t_name, PRESET_CONFIGS["classic"]))
+def _resolve_config(template_name: Optional[str] = "jamaica", custom_styles: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    t_name = (template_name or "jamaica").lower()
+    base = dict(PRESET_CONFIGS.get(t_name, PRESET_CONFIGS["jamaica"]))
     if custom_styles and isinstance(custom_styles, dict):
         if custom_styles.get("primary_color"):
             base["primary_color"] = custom_styles["primary_color"]
@@ -81,17 +94,20 @@ def _escape(text: str) -> str:
 
 def build_pdf(
     resume_text: str,
-    template: Optional[str] = "classic",
+    template: Optional[str] = "jamaica",
     custom_styles: Optional[Dict[str, Any]] = None,
 ) -> bytes:
     cfg = _resolve_config(template, custom_styles)
     font_base = cfg["font_family"]
     if font_base == "Times-Roman":
         font_bold = "Times-Bold"
+        font_italic = "Times-Italic"
     elif font_base == "Courier":
         font_bold = "Courier-Bold"
+        font_italic = "Courier-Oblique"
     else:
         font_bold = "Helvetica-Bold"
+        font_italic = "Helvetica-Oblique"
 
     align_code = TA_CENTER if cfg["header_align"] == "center" else TA_LEFT
     p_color = HexColor(cfg["primary_color"])
@@ -101,28 +117,34 @@ def build_pdf(
     ss = getSampleStyleSheet()
     name_style = ParagraphStyle(
         "CustomName", parent=ss["Title"], fontName=font_bold,
-        fontSize=20 if cfg["font_size_body"] > 9.5 else 18,
-        leading=24, textColor=p_color, spaceAfter=4, alignment=align_code
+        fontSize=18 if cfg["font_size_body"] <= 10.0 else 20,
+        leading=22, textColor=p_color, spaceAfter=4, alignment=align_code
     )
     contact_style = ParagraphStyle(
         "CustomContact", parent=ss["Normal"], fontName=font_base,
-        fontSize=9.5, leading=13, textColor=s_color, spaceAfter=10, alignment=align_code
+        fontSize=9.5, leading=13, textColor=s_color, spaceAfter=2, alignment=align_code
     )
     section_style = ParagraphStyle(
         "CustomSection", parent=ss["Heading2"], fontName=font_bold,
-        fontSize=12 if cfg["font_size_body"] > 9.5 else 11,
-        leading=15, textColor=p_color, spaceBefore=8, spaceAfter=4
+        fontSize=12 if cfg["font_size_body"] > 9.5 else 11.5,
+        leading=15, textColor=p_color, spaceBefore=7, spaceAfter=2
     )
     body_style = ParagraphStyle(
         "CustomBody", parent=ss["Normal"], fontName=font_base,
         fontSize=cfg["font_size_body"], leading=cfg["leading_body"], textColor=b_color, spaceAfter=2
     )
+    bold_body_style = ParagraphStyle("CustomBoldBody", parent=body_style, fontName=font_bold)
+    italic_body_style = ParagraphStyle("CustomItalicBody", parent=body_style, fontName=font_italic)
+    right_body_style = ParagraphStyle("CustomRightBody", parent=body_style, alignment=TA_RIGHT)
+    right_italic_style = ParagraphStyle("CustomRightItalic", parent=italic_body_style, alignment=TA_RIGHT)
     bullet_style = ParagraphStyle(
-        "CustomBullet", parent=body_style, leftIndent=14, bulletIndent=2, spaceAfter=1
+        "CustomBullet", parent=body_style, leftIndent=14, bulletIndent=2, spaceAfter=1.5
     )
 
     buf = io.BytesIO()
     margin_pts = cfg["margin"] * inch
+    usable_width = 8.5 * inch - 2 * margin_pts
+
     doc = SimpleDocTemplate(
         buf, pagesize=LETTER,
         leftMargin=margin_pts, rightMargin=margin_pts,
@@ -150,30 +172,97 @@ def build_pdf(
         else:
             break
 
-    if name_line:
-        story.append(Paragraph(_escape(name_line), name_style))
-    if contact_lines:
-        story.append(Paragraph(_escape(" | ".join(contact_lines)), contact_style))
+    is_double_header = cfg.get("header_border_double") or (cfg["header_align"] == "center" and font_base == "Times-Roman")
 
-    if cfg["has_divider"]:
-        story.append(HRFlowable(width="100%", thickness=1.5, color=p_color, spaceBefore=2, spaceAfter=8))
+    if is_double_header:
+        if name_line:
+            story.append(Paragraph(_escape(name_line), name_style))
+        story.append(HRFlowable(width="100%", thickness=1.0, color=p_color, spaceBefore=2, spaceAfter=4))
+        if contact_lines:
+            story.append(Paragraph(_escape(" | ".join(contact_lines)), contact_style))
+        story.append(HRFlowable(width="100%", thickness=1.0, color=p_color, spaceBefore=4, spaceAfter=8))
     else:
-        story.append(Spacer(1, 4))
+        if name_line:
+            story.append(Paragraph(_escape(name_line), name_style))
+        if contact_lines:
+            story.append(Paragraph(_escape(" | ".join(contact_lines)), contact_style))
+        if cfg["has_divider"]:
+            story.append(HRFlowable(width="100%", thickness=1.5, color=p_color, spaceBefore=2, spaceAfter=8))
+        else:
+            story.append(Spacer(1, 4))
+
+    current_section = ""
 
     for ln in lines[body_start:]:
         s = ln.strip()
         if not s:
-            story.append(Spacer(1, 3))
+            story.append(Spacer(1, 2))
             continue
         upper = s.upper().rstrip(":")
         if upper in SECTION_HEADERS:
-            story.append(Paragraph(_escape(upper), section_style))
-            if cfg["has_divider"]:
-                story.append(HRFlowable(width="100%", thickness=0.75, color=p_color, spaceBefore=1, spaceAfter=4))
-        elif s.startswith(("-", "•", "*")):
-            story.append(Paragraph(_escape(s.lstrip("-•* ").strip()), bullet_style, bulletText="-"))
+            current_section = upper
+            sec_title = upper.title() if font_base == "Times-Roman" else upper
+            story.append(Paragraph(_escape(sec_title), section_style))
+            if cfg["has_divider"] or is_double_header:
+                story.append(HRFlowable(width="100%", thickness=1.0, color=p_color, spaceBefore=1, spaceAfter=4))
+            continue
+
+        is_bullet = s.startswith(("-", "•", "*"))
+        bullet_text = s.lstrip("-•* ").strip() if is_bullet else s
+
+        # Check for pipe delimited line (two column entries)
+        if "|" in bullet_text and not is_bullet:
+            parts = [p.strip() for p in bullet_text.split("|")]
+            if len(parts) >= 2:
+                left_text = " | ".join(parts[:-1])
+                right_text = parts[-1]
+
+                # Style left & right parts based on section
+                if left_text.replace(" ", "").replace("-", "").isupper() or current_section in ("EXPERIENCE", "EDUCATION"):
+                    left_p = Paragraph(f"<b>{_escape(left_text)}</b>", body_style)
+                    right_p = Paragraph(f"<i>{_escape(right_text)}</i>", right_body_style)
+                    tbl = Table([[left_p, right_p]], colWidths=[usable_width - 150, 150])
+                    tbl.setStyle(TableStyle([
+                        ('VALIGN', (0,0), (-1,-1), 'BOTTOM'),
+                        ('LEFTPADDING', (0,0), (-1,-1), 0),
+                        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                        ('TOPPADDING', (0,0), (-1,-1), 0),
+                        ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+                    ]))
+                    story.append(tbl)
+                    continue
+
+        # Bullet with pipe (e.g. Certifications with date)
+        if is_bullet and "|" in bullet_text:
+            parts = [p.strip() for p in bullet_text.split("|")]
+            if len(parts) >= 2:
+                left_text = "• " + " | ".join(parts[:-1])
+                right_text = parts[-1]
+                left_p = Paragraph(_escape(left_text), body_style)
+                right_p = Paragraph(_escape(right_text), right_body_style)
+                tbl = Table([[left_p, right_p]], colWidths=[usable_width - 80, 80])
+                tbl.setStyle(TableStyle([
+                    ('VALIGN', (0,0), (-1,-1), 'BOTTOM'),
+                    ('LEFTPADDING', (0,0), (-1,-1), 14),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                    ('TOPPADDING', (0,0), (-1,-1), 0),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+                ]))
+                story.append(tbl)
+                continue
+
+        if is_bullet:
+            story.append(Paragraph(_escape(bullet_text), bullet_style, bulletText="•"))
         else:
-            story.append(Paragraph(_escape(s), body_style))
+            if ":" in s and current_section == "SKILLS":
+                cat, rest = s.split(":", 1)
+                formatted = f"<b>{_escape(cat.strip())}:</b> {_escape(rest.strip())}"
+                story.append(Paragraph(formatted, body_style))
+            else:
+                if current_section == "EDUCATION" and not s.isupper():
+                    story.append(Paragraph(f"<i>{_escape(s)}</i>", body_style))
+                else:
+                    story.append(Paragraph(_escape(s), body_style))
 
     doc.build(story)
     buf.seek(0)
@@ -184,7 +273,7 @@ def build_cover_letter_pdf(
     text: str,
     candidate_name: str = "",
     job_title: str = "",
-    template: Optional[str] = "classic",
+    template: Optional[str] = "jamaica",
     custom_styles: Optional[Dict[str, Any]] = None,
 ) -> bytes:
     cfg = _resolve_config(template, custom_styles)
@@ -247,15 +336,15 @@ def build_cover_letter_pdf(
 
 def build_html(
     resume_text: str,
-    template: Optional[str] = "classic",
+    template: Optional[str] = "jamaica",
     custom_styles: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Generates styled standalone HTML resume with embedded CSS matching the chosen template."""
+    """Generates styled standalone HTML resume matching the Jamaica Academic & preset templates."""
     cfg = _resolve_config(template, custom_styles)
     p_color = cfg["primary_color"]
     s_color = cfg["secondary_color"]
     b_color = cfg["body_color"]
-    font_family = "Georgia, serif" if cfg["font_family"] == "Times-Roman" else "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+    font_family = "Georgia, 'Times New Roman', serif" if cfg["font_family"] == "Times-Roman" else "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
     header_align = cfg["header_align"]
 
     lines = [ln.rstrip() for ln in (resume_text or "").splitlines()]
@@ -278,6 +367,8 @@ def build_html(
         else:
             break
 
+    is_double_header = cfg.get("header_border_double") or (cfg["header_align"] == "center" and cfg["font_family"] == "Times-Roman")
+
     html_parts = []
     html_parts.append(f"""<!DOCTYPE html>
 <html lang="en">
@@ -286,49 +377,64 @@ def build_html(
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{_escape(name_line or 'Resume')}</title>
 <style>
+  * {{ box-sizing: border-box; }}
   body {{
     font-family: {font_family};
     color: {b_color};
     background-color: #ffffff;
     max-width: 800px;
     margin: 0 auto;
-    padding: 40px 24px;
-    line-height: 1.5;
+    padding: 36px 32px;
+    line-height: 1.45;
   }}
   .header {{
     text-align: {header_align};
-    margin-bottom: 20px;
-    border-bottom: { '2px solid ' + p_color if cfg['has_divider'] else 'none' };
-    padding-bottom: { '12px' if cfg['has_divider'] else '0' };
+    margin-bottom: 16px;
+    { 'border-top: 1px solid ' + p_color + '; border-bottom: 1px solid ' + p_color + '; padding: 6px 0;' if is_double_header else ('border-bottom: 2px solid ' + p_color + '; padding-bottom: 10px;' if cfg['has_divider'] else '') }
   }}
   .name {{
-    font-size: 26px;
+    font-size: 24px;
     font-weight: 700;
     color: {p_color};
     margin: 0 0 6px 0;
+    letter-spacing: 0.5px;
   }}
   .contact {{
-    font-size: 14px;
+    font-size: 13px;
     color: {s_color};
     margin: 0;
   }}
   .section-title {{
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
     color: {p_color};
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-top: 24px;
-    margin-bottom: 6px;
-    border-bottom: { '1px solid ' + p_color if cfg['has_divider'] else 'none' };
-    padding-bottom: { '4px' if cfg['has_divider'] else '0' };
+    margin-top: 20px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid {p_color};
+    padding-bottom: 2px;
+  }}
+  .two-col {{
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-top: 4px;
+    margin-bottom: 2px;
+  }}
+  .two-col-left {{
+    font-size: {cfg['font_size_body']}pt;
+    font-weight: 700;
+  }}
+  .two-col-right {{
+    font-size: {cfg['font_size_body']}pt;
+    font-style: italic;
+    text-align: right;
   }}
   ul {{
-    margin: 4px 0 12px 20px;
+    margin: 4px 0 10px 18px;
     padding: 0;
   }}
   li {{
-    margin-bottom: 4px;
+    margin-bottom: 3px;
     font-size: {cfg['font_size_body']}pt;
   }}
   p {{
@@ -344,14 +450,24 @@ def build_html(
 """)
 
     if name_line or contact_lines:
-        html_parts.append('<div class="header">')
-        if name_line:
-            html_parts.append(f'  <h1 class="name">{_escape(name_line)}</h1>')
-        if contact_lines:
-            html_parts.append(f'  <p class="contact">{_escape(" | ".join(contact_lines))}</p>')
-        html_parts.append('</div>')
+        if is_double_header:
+            if name_line:
+                html_parts.append(f'  <h1 class="name" style="text-align:center">{_escape(name_line)}</h1>')
+            html_parts.append('<div class="header">')
+            if contact_lines:
+                html_parts.append(f'  <p class="contact">{_escape(" | ".join(contact_lines))}</p>')
+            html_parts.append('</div>')
+        else:
+            html_parts.append('<div class="header">')
+            if name_line:
+                html_parts.append(f'  <h1 class="name">{_escape(name_line)}</h1>')
+            if contact_lines:
+                html_parts.append(f'  <p class="contact">{_escape(" | ".join(contact_lines))}</p>')
+            html_parts.append('</div>')
 
+    current_section = ""
     in_list = False
+
     for ln in lines[body_start:]:
         s = ln.strip()
         if not s:
@@ -364,20 +480,56 @@ def build_html(
             if in_list:
                 html_parts.append('</ul>')
                 in_list = False
-            html_parts.append(f'<div class="section-title">{_escape(upper)}</div>')
-        elif s.startswith(("-", "•", "*")):
+            current_section = upper
+            sec_title = upper.title() if cfg["font_family"] == "Times-Roman" else upper
+            html_parts.append(f'<div class="section-title">{_escape(sec_title)}</div>')
+            continue
+
+        is_bullet = s.startswith(("-", "•", "*"))
+        bullet_text = s.lstrip("-•* ").strip() if is_bullet else s
+
+        if "|" in bullet_text and not is_bullet:
+            parts = [p.strip() for p in bullet_text.split("|")]
+            if len(parts) >= 2:
+                if in_list:
+                    html_parts.append('</ul>')
+                    in_list = False
+                left_text = " | ".join(parts[:-1])
+                right_text = parts[-1]
+                html_parts.append(f'<div class="two-col"><span class="two-col-left">{_escape(left_text)}</span><span class="two-col-right">{_escape(right_text)}</span></div>')
+                continue
+
+        if is_bullet and "|" in bullet_text:
+            parts = [p.strip() for p in bullet_text.split("|")]
+            if len(parts) >= 2:
+                if in_list:
+                    html_parts.append('</ul>')
+                    in_list = False
+                left_text = "• " + " | ".join(parts[:-1])
+                right_text = parts[-1]
+                html_parts.append(f'<div class="two-col"><span style="font-size:{cfg["font_size_body"]}pt">{_escape(left_text)}</span><span class="two-col-right">{_escape(right_text)}</span></div>')
+                continue
+
+        if is_bullet:
             if not in_list:
                 html_parts.append('<ul>')
                 in_list = True
-            html_parts.append(f'  <li>{_escape(s.lstrip("-•* ").strip())}</li>')
+            html_parts.append(f'  <li>{_escape(bullet_text)}</li>')
         else:
             if in_list:
                 html_parts.append('</ul>')
                 in_list = False
-            html_parts.append(f'<p>{_escape(s)}</p>')
+            if ":" in s and current_section == "SKILLS":
+                cat, rest = s.split(":", 1)
+                html_parts.append(f'<p><strong>{_escape(cat.strip())}:</strong> {_escape(rest.strip())}</p>')
+            elif current_section == "EDUCATION" and not s.isupper():
+                html_parts.append(f'<p><em>{_escape(s)}</em></p>')
+            else:
+                html_parts.append(f'<p>{_escape(s)}</p>')
 
     if in_list:
         html_parts.append('</ul>')
 
     html_parts.append("</body>\n</html>")
     return "\n".join(html_parts)
+
