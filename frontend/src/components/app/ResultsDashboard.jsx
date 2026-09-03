@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { RESUME } from "@/constants/testIds";
 import { API, useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { Copy, Download, Sparkles, CheckCircle2, Circle, AlertCircle, Mail, Code, Sparkle, Kanban, BookmarkPlus, BarChart2 } from "lucide-react";
+import { Copy, Download, Sparkles, CheckCircle2, Circle, AlertCircle, Mail, Code, Sparkle, Kanban, BookmarkPlus, BarChart2, Zap } from "lucide-react";
 import ExportModal from "@/components/ExportModal";
 import InteractiveBulletEditor from "@/components/app/InteractiveBulletEditor";
 import { Input } from "@/components/ui/input";
@@ -284,7 +284,7 @@ export default function ResultsDashboard({
                   </Button>
                   <Button onClick={onAutoOptimize} disabled={optimizing || autoOptimizing}
                     className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-full px-5 shadow-lg border border-amber-400/30 flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-amber-200 fill-amber-200" />
+                    <Zap className="w-4 h-4 text-white fill-white" />
                     {autoOptimizing ? "Boosting to 90+..." : "Boost to 90+ ATS"}
                   </Button>
                 </div>
@@ -423,7 +423,7 @@ export default function ResultsDashboard({
                   {optimizing ? "Optimizing..." : "Standard Optimize"}
                 </Button>
                 <Button onClick={onAutoOptimize} disabled={optimizing || autoOptimizing} className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-full px-6 shadow-lg border border-amber-400/30">
-                  <Sparkles className="w-4 h-4 mr-2 text-amber-200 fill-amber-200" />
+                  <Zap className="w-4 h-4 mr-2 text-white fill-white" />
                   {autoOptimizing ? "Boosting to 90+..." : "Boost to 90+ ATS"}
                 </Button>
               </div>
@@ -472,7 +472,7 @@ export default function ResultsDashboard({
                     disabled={optimizing || autoOptimizing || reEvaluating}
                     className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-semibold rounded-full px-4 h-9 shadow border border-amber-400/30 flex items-center gap-1.5"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-200 fill-amber-200" />
+                    <Zap className="w-3.5 h-3.5 text-white fill-white" />
                     {autoOptimizing ? "Re-Boosting..." : "Re-Optimize to 90+"}
                   </Button>
 
