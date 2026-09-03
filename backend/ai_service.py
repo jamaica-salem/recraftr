@@ -419,7 +419,7 @@ async def _run_stream(
         mock_data = {"job_title": "", "job_description": ""}
 
     raw_str = json.dumps(mock_data, indent=2)
-    chunk_size = 25
+    chunk_size = 15
     for i in range(0, len(raw_str), chunk_size):
         chunk = raw_str[i:i+chunk_size]
         buf += chunk
