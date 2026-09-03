@@ -133,9 +133,8 @@ export default function UploadZone({ onUploaded, uploaded, onClear, onLoadSample
                 e.stopPropagation();
                 onLoadSample();
               }}
-              className="bg-[#1A1A1A] border-[#262626] text-[#F5F5F5] hover:bg-[#2563EB] hover:border-[#2563EB] hover:text-white rounded-lg text-xs h-8 px-3 flex items-center gap-1.5 transition-all cursor-pointer"
+              className="bg-[#1A1A1A] border-[#262626] text-[#F5F5F5] hover:bg-[#2563EB] hover:border-[#2563EB] hover:text-white rounded-lg text-xs h-8 px-3 flex items-center justify-center transition-all cursor-pointer"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
               <span>Load Sample Resume & JD</span>
             </Button>
           </div>
