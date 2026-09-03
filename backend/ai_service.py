@@ -26,19 +26,21 @@ except ImportError:
 # ---------------- Environment & Models Configuration ----------------
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
-GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.6-flash')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.5-flash')
 GROQ_MODEL = os.environ.get('GROQ_MODEL', 'openai/gpt-oss-120b')
 
 MODELS = {
-    "gemini-3.6-flash": ("gemini", GEMINI_MODEL),
-    "gemini-2.5-flash": ("gemini", GEMINI_MODEL),
+    "gemini-3.5-flash": ("gemini", "gemini-3.5-flash"),
+    "gemini-flash-latest": ("gemini", "gemini-flash-latest"),
     "groq-gpt-oss-120b": ("groq", GROQ_MODEL),
     "groq-llama3-70b": ("groq", GROQ_MODEL),
-    # Legacy fallbacks
-    "gpt-5.4": ("gemini", GEMINI_MODEL),
-    "gemini-3-flash": ("gemini", GEMINI_MODEL),
+    # Fallback mappings
+    "gemini-3.6-flash": ("gemini", "gemini-3.5-flash"),
+    "gemini-2.5-flash": ("gemini", "gemini-3.5-flash"),
+    "gpt-5.4": ("gemini", "gemini-3.5-flash"),
+    "gemini-3-flash": ("gemini", "gemini-3.5-flash"),
 }
-DEFAULT_MODEL = "gemini-3.6-flash"
+DEFAULT_MODEL = "gemini-3.5-flash"
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
