@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, List
 import io
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Request
 from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -24,6 +24,7 @@ from auth import (
 )
 from resume_parser import parse_resume, parse_resume_async
 from file_security import validate_upload_file, FileValidationError
+from ai_security import ai_rate_limiter, record_ai_telemetry
 from ai_service import (
     analyze_resume, optimize_resume,
     analyze_stream, optimize_stream, auto_optimize_stream, cover_letter_stream, rewrite_bullet,
@@ -244,8 +245,17 @@ def _sse(event: dict) -> str:
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
 
 
+async def check_ai_limits(request: Request, user_id: str, operation: str):
+    client_ip = request.client.host if request and request.client else "127.0.0.1"
+    allowed, msg = await ai_rate_limiter.check_rate_limits(user_id, client_ip, operation, db)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=msg)
+    return client_ip
+
+
 @api.post("/analyze-stream")
-async def analyze_stream_endpoint(payload: AnalyzeRequest, user_id: str = Depends(get_current_user)):
+async def analyze_stream_endpoint(payload: AnalyzeRequest, request: Request, user_id: str = Depends(get_current_user)):
+    client_ip = await check_ai_limits(request, user_id, "analyze")
     resume_text = payload.resume_text
     resume_filename = "optimized_resume.pdf"
     resume_id = payload.resume_id
@@ -260,18 +270,23 @@ async def analyze_stream_endpoint(payload: AnalyzeRequest, user_id: str = Depend
     if not resume_text or len(resume_text.strip()) < 20:
         raise HTTPException(status_code=400, detail="Resume text or resume_id is required")
 
+    req_id = f"ai_req_{uuid.uuid4().hex[:12]}"
+    start_time = time.time()
+
     async def gen():
         final = None
+        provider = "gemini"
+        model_name = payload.model or DEFAULT_MODEL
         try:
-            async for ev in analyze_stream(
-                resume_text, payload.job_title, payload.job_description, payload.model or DEFAULT_MODEL
-            ):
+            async for ev in analyze_stream(resume_text, payload.job_title, payload.job_description, payload.model or DEFAULT_MODEL):
                 if ev.get("type") == "delta":
                     yield _sse({"type": "delta", "text": ev["text"]})
                 elif ev.get("type") == "error":
                     yield _sse({"type": "error", "error": ev["error"]}); return
                 elif ev.get("type") == "result":
                     final = ev.get("parsed") or {}
+                    provider = ev.get("provider", provider)
+                    model_name = ev.get("model", model_name)
             if not final or "ats_score" not in final:
                 yield _sse({"type": "error", "error": "AI returned an invalid response"}); return
             analysis_id = str(uuid.uuid4())
@@ -283,22 +298,35 @@ async def analyze_stream_endpoint(payload: AnalyzeRequest, user_id: str = Depend
                 "analysis": final, "optimization": None,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
-            yield _sse({"type": "done", "analysis_id": analysis_id, "result": final})
+            latency_ms = (time.time() - start_time) * 1000
+            await record_ai_telemetry(
+                db, user_id, "analyze", provider, model_name,
+                f"{payload.job_title} {payload.job_description} {resume_text}",
+                json.dumps(final), latency_ms, status="success", request_id=req_id
+            )
+            yield _sse({"type": "done", "analysis_id": analysis_id, "request_id": req_id, "result": final})
         except Exception as e:
             yield _sse({"type": "error", "error": str(e)})
 
-    return StreamingResponse(gen(), media_type="text/event-stream", headers=SSE_HEADERS)
+    resp_headers = {**SSE_HEADERS, "X-Request-ID": req_id}
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=resp_headers)
 
 
 @api.post("/optimize-stream")
-async def optimize_stream_endpoint(payload: OptimizeRequest, user_id: str = Depends(get_current_user)):
+async def optimize_stream_endpoint(payload: OptimizeRequest, request: Request, user_id: str = Depends(get_current_user)):
+    client_ip = await check_ai_limits(request, user_id, "optimize")
     row = await db.analyses.find_one({"id": payload.analysis_id, "user_id": user_id})
     if not row:
         raise HTTPException(status_code=404, detail="Analysis not found")
     resume_text = await _get_resume_text(row, user_id)
 
+    req_id = f"ai_req_{uuid.uuid4().hex[:12]}"
+    start_time = time.time()
+
     async def gen():
         final = None
+        provider = "gemini"
+        model_name = row.get("model", DEFAULT_MODEL)
         try:
             async for ev in optimize_stream(
                 resume_text, row["job_title"], row["job_description"],
@@ -310,6 +338,8 @@ async def optimize_stream_endpoint(payload: OptimizeRequest, user_id: str = Depe
                     yield _sse({"type": "error", "error": ev["error"]}); return
                 elif ev.get("type") == "result":
                     final = ev.get("parsed") or {}
+                    provider = ev.get("provider", provider)
+                    model_name = ev.get("model", model_name)
             if not final or "optimized_resume" not in final:
                 yield _sse({"type": "error", "error": "AI returned an invalid response"}); return
             await db.analyses.update_one(
@@ -320,11 +350,18 @@ async def optimize_stream_endpoint(payload: OptimizeRequest, user_id: str = Depe
                     "optimized_at": datetime.now(timezone.utc).isoformat(),
                 }},
             )
-            yield _sse({"type": "done", "analysis_id": payload.analysis_id, "original_resume_text": resume_text, "result": final})
+            latency_ms = (time.time() - start_time) * 1000
+            await record_ai_telemetry(
+                db, user_id, "optimize", provider, model_name,
+                f"{row['job_title']} {row['job_description']} {resume_text}",
+                json.dumps(final), latency_ms, status="success", request_id=req_id
+            )
+            yield _sse({"type": "done", "analysis_id": payload.analysis_id, "request_id": req_id, "original_resume_text": resume_text, "result": final})
         except Exception as e:
             yield _sse({"type": "error", "error": str(e)})
 
-    return StreamingResponse(gen(), media_type="text/event-stream", headers=SSE_HEADERS)
+    resp_headers = {**SSE_HEADERS, "X-Request-ID": req_id}
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=resp_headers)
 
 
 class AutoOptimizeRequest(BaseModel):
@@ -333,15 +370,21 @@ class AutoOptimizeRequest(BaseModel):
 
 
 @api.post("/auto-optimize-stream")
-async def auto_optimize_stream_endpoint(payload: AutoOptimizeRequest, user_id: str = Depends(get_current_user)):
+async def auto_optimize_stream_endpoint(payload: AutoOptimizeRequest, request: Request, user_id: str = Depends(get_current_user)):
+    client_ip = await check_ai_limits(request, user_id, "optimize")
     row = await db.analyses.find_one({"id": payload.analysis_id, "user_id": user_id})
     if not row:
         raise HTTPException(status_code=404, detail="Analysis not found")
     resume_text = await _get_resume_text(row, user_id)
     start_text = (row.get("optimization") or {}).get("optimized_resume") or resume_text
 
+    req_id = f"ai_req_{uuid.uuid4().hex[:12]}"
+    start_time = time.time()
+
     async def gen():
         final = None
+        provider = "gemini"
+        model_name = row.get("model", DEFAULT_MODEL)
         try:
             async for ev in auto_optimize_stream(
                 start_text, row["job_title"], row["job_description"],
@@ -354,6 +397,8 @@ async def auto_optimize_stream_endpoint(payload: AutoOptimizeRequest, user_id: s
                     yield _sse({"type": "error", "error": ev["error"]}); return
                 elif ev.get("type") == "result":
                     final = ev.get("parsed") or {}
+                    provider = ev.get("provider", provider)
+                    model_name = ev.get("model", model_name)
             if not final or "optimized_resume" not in final:
                 yield _sse({"type": "error", "error": "AI returned an invalid response"}); return
 
@@ -365,11 +410,18 @@ async def auto_optimize_stream_endpoint(payload: AutoOptimizeRequest, user_id: s
                     "optimized_at": datetime.now(timezone.utc).isoformat(),
                 }},
             )
-            yield _sse({"type": "done", "analysis_id": payload.analysis_id, "original_resume_text": resume_text, "result": final})
+            latency_ms = (time.time() - start_time) * 1000
+            await record_ai_telemetry(
+                db, user_id, "optimize", provider, model_name,
+                f"{row['job_title']} {row['job_description']} {start_text}",
+                json.dumps(final), latency_ms, status="success", request_id=req_id
+            )
+            yield _sse({"type": "done", "analysis_id": payload.analysis_id, "request_id": req_id, "original_resume_text": resume_text, "result": final})
         except Exception as e:
             yield _sse({"type": "error", "error": str(e)})
 
-    return StreamingResponse(gen(), media_type="text/event-stream", headers=SSE_HEADERS)
+    resp_headers = {**SSE_HEADERS, "X-Request-ID": req_id}
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=resp_headers)
 
 
 # ---------------- Cover letter (streaming + PDF) ----------------
@@ -378,14 +430,20 @@ class CoverLetterRequest(BaseModel):
 
 
 @api.post("/cover-letter-stream")
-async def cover_letter_stream_endpoint(payload: CoverLetterRequest, user_id: str = Depends(get_current_user)):
+async def cover_letter_stream_endpoint(payload: CoverLetterRequest, request: Request, user_id: str = Depends(get_current_user)):
+    client_ip = await check_ai_limits(request, user_id, "cover_letter")
     row = await db.analyses.find_one({"id": payload.analysis_id, "user_id": user_id})
     if not row:
         raise HTTPException(status_code=404, detail="Analysis not found")
     resume_text = await _get_resume_text(row, user_id)
 
+    req_id = f"ai_req_{uuid.uuid4().hex[:12]}"
+    start_time = time.time()
+
     async def gen():
         final = None
+        provider = "gemini"
+        model_name = row.get("model", DEFAULT_MODEL)
         try:
             async for ev in cover_letter_stream(
                 resume_text, row["job_title"], row["job_description"], row.get("model", DEFAULT_MODEL)
@@ -396,6 +454,8 @@ async def cover_letter_stream_endpoint(payload: CoverLetterRequest, user_id: str
                     yield _sse({"type": "error", "error": ev["error"]}); return
                 elif ev.get("type") == "result":
                     final = ev.get("parsed") or {}
+                    provider = ev.get("provider", provider)
+                    model_name = ev.get("model", model_name)
             letter = (final or {}).get("cover_letter", "").strip()
             if not letter:
                 yield _sse({"type": "error", "error": "AI returned an empty cover letter"}); return
@@ -403,11 +463,18 @@ async def cover_letter_stream_endpoint(payload: CoverLetterRequest, user_id: str
                 {"id": payload.analysis_id},
                 {"$set": {"cover_letter": letter, "cover_letter_at": datetime.now(timezone.utc).isoformat()}},
             )
-            yield _sse({"type": "done", "cover_letter": letter})
+            latency_ms = (time.time() - start_time) * 1000
+            await record_ai_telemetry(
+                db, user_id, "cover_letter", provider, model_name,
+                f"{row['job_title']} {row['job_description']} {resume_text}",
+                letter, latency_ms, status="success", request_id=req_id
+            )
+            yield _sse({"type": "done", "cover_letter": letter, "request_id": req_id})
         except Exception as e:
             yield _sse({"type": "error", "error": str(e)})
 
-    return StreamingResponse(gen(), media_type="text/event-stream", headers=SSE_HEADERS)
+    resp_headers = {**SSE_HEADERS, "X-Request-ID": req_id}
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=resp_headers)
 
 
 # ---------------- History ----------------
@@ -595,16 +662,25 @@ class RewriteBulletRequest(BaseModel):
 
 
 @api.post("/rewrite-bullet")
-async def rewrite_bullet_endpoint(payload: RewriteBulletRequest, user_id: str = Depends(get_current_user)):
+async def rewrite_bullet_endpoint(payload: RewriteBulletRequest, request: Request, user_id: str = Depends(get_current_user)):
+    client_ip = await check_ai_limits(request, user_id, "rewrite_bullet")
     if not payload.bullet_text or len(payload.bullet_text.strip()) < 5:
         raise HTTPException(status_code=400, detail="Bullet text is empty or too short")
     if not payload.instruction or len(payload.instruction.strip()) < 2:
         raise HTTPException(status_code=400, detail="Instruction is required")
+    start_time = time.time()
+    req_id = f"ai_req_{uuid.uuid4().hex[:12]}"
     try:
         res = await rewrite_bullet(
             payload.bullet_text, payload.instruction, payload.job_description or "", payload.model or DEFAULT_MODEL
         )
-        return res
+        latency_ms = (time.time() - start_time) * 1000
+        await record_ai_telemetry(
+            db, user_id, "rewrite_bullet", "gemini", payload.model or DEFAULT_MODEL,
+            f"{payload.instruction} {payload.bullet_text}",
+            json.dumps(res), latency_ms, status="success", request_id=req_id
+        )
+        return {**res, "request_id": req_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Bullet rewrite failed: {e}")
 

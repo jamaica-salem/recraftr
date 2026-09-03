@@ -6,7 +6,16 @@ import asyncio
 import logging
 from typing import Any, Dict, AsyncGenerator
 
+import random
 from deterministic_engine import analyze_deterministic
+from ai_security import (
+    gemini_circuit_breaker,
+    OPERATION_CONFIGS,
+    DEFAULT_OP_CONFIG,
+    AI_MAX_CONCURRENT_REQUESTS,
+)
+
+ai_concurrency_semaphore = asyncio.Semaphore(AI_MAX_CONCURRENT_REQUESTS)
 
 logger = logging.getLogger("recraftr.ai")
 
@@ -249,8 +258,16 @@ Guidelines:
 }}"""""
 
 
+def _is_transient_error(e: Exception) -> bool:
+    if isinstance(e, (asyncio.TimeoutError, TimeoutError)):
+        return True
+    msg = str(e).lower()
+    transient_indicators = ["429", "500", "502", "503", "504", "rate limit", "quota", "overloaded", "service unavailable", "timeout"]
+    return any(ind in msg for ind in transient_indicators)
+
+
 # ---------------- Primary Provider: Gemini ----------------
-async def _stream_gemini(system: str, prompt: str, model_name: str) -> AsyncGenerator[str, None]:
+async def _stream_gemini(system: str, prompt: str, model_name: str, max_output_tokens: int = 1500) -> AsyncGenerator[str, None]:
     key = os.environ.get('GEMINI_API_KEY') or GEMINI_API_KEY
     if not key or not genai:
         raise RuntimeError("Gemini API key or SDK missing")
@@ -259,6 +276,7 @@ async def _stream_gemini(system: str, prompt: str, model_name: str) -> AsyncGene
     config = types.GenerateContentConfig(
         system_instruction=system,
         response_mime_type="application/json",
+        max_output_tokens=max_output_tokens,
     )
     response_stream = await client.aio.models.generate_content_stream(
         model=model_name,
@@ -271,7 +289,7 @@ async def _stream_gemini(system: str, prompt: str, model_name: str) -> AsyncGene
 
 
 # ---------------- Fallback Provider: Groq ----------------
-async def _stream_groq(system: str, prompt: str, model_name: str = "") -> AsyncGenerator[str, None]:
+async def _stream_groq(system: str, prompt: str, model_name: str = "", max_output_tokens: int = 1500) -> AsyncGenerator[str, None]:
     key = os.environ.get('GROQ_API_KEY') or GROQ_API_KEY
     if not key or not AsyncGroq:
         raise RuntimeError("Groq API key or SDK missing")
@@ -285,6 +303,7 @@ async def _stream_groq(system: str, prompt: str, model_name: str = "") -> AsyncG
             {"role": "user", "content": prompt},
         ],
         temperature=0.3,
+        max_tokens=max_output_tokens,
         response_format={"type": "json_object"},
         stream=True,
     )
@@ -295,36 +314,54 @@ async def _stream_groq(system: str, prompt: str, model_name: str = "") -> AsyncG
 
 
 # ---------------- Core Hybrid Pipeline & Failover ----------------
-async def _run_stream(system: str, prompt: str, model_key: str = DEFAULT_MODEL) -> AsyncGenerator[Dict[str, Any], None]:
-    provider, model_name = MODELS.get(model_key, MODELS[DEFAULT_MODEL])
-    buf = ""
+async def _run_stream(
+    system: str,
+    prompt: str,
+    model_key: str = DEFAULT_MODEL,
+    operation: str = "analyze",
+) -> AsyncGenerator[Dict[str, Any], None]:
+    op_cfg = OPERATION_CONFIGS.get(operation, DEFAULT_OP_CONFIG)
+    max_tokens = op_cfg["max_output_tokens"]
 
-    # 1. Try Gemini Primary
-    if (os.environ.get('GEMINI_API_KEY') or GEMINI_API_KEY) and genai:
-        try:
-            logger.info("Executing Primary AI: Gemini (%s)", model_name)
-            async for chunk_text in _stream_gemini(system, prompt, model_name):
-                buf += chunk_text
-                yield {"type": "delta", "text": chunk_text}
-            yield {"type": "result", "raw": buf, "parsed": _extract_json(buf)}
-            return
-        except Exception as e:
-            logger.warning("Gemini Primary failed (%s). Failing over to Groq Fallback...", e)
-            buf = ""
+    async with ai_concurrency_semaphore:
+        provider, model_name = MODELS.get(model_key, MODELS[DEFAULT_MODEL])
+        buf = ""
 
-    # 2. Try Groq Fallback
-    if (os.environ.get('GROQ_API_KEY') or GROQ_API_KEY) and AsyncGroq:
-        try:
-            groq_model = model_name if provider == "groq" else os.environ.get('GROQ_MODEL', 'openai/gpt-oss-120b')
-            logger.info("Executing Fallback AI: Groq (%s)", groq_model)
-            async for chunk_text in _stream_groq(system, prompt, groq_model):
-                buf += chunk_text
-                yield {"type": "delta", "text": chunk_text}
-            yield {"type": "result", "raw": buf, "parsed": _extract_json(buf)}
-            return
-        except Exception as e:
-            logger.warning("Groq Fallback failed (%s). Falling back to Deterministic Engine...", e)
-            buf = ""
+        # 1. Try Gemini Primary if Circuit Breaker allows
+        if (os.environ.get('GEMINI_API_KEY') or GEMINI_API_KEY) and genai and gemini_circuit_breaker.can_execute():
+            attempts = 2  # Primary attempt + 1 transient retry
+            for attempt in range(attempts):
+                try:
+                    logger.info("Executing Primary AI: Gemini (%s) [Attempt %d/%d]", model_name, attempt + 1, attempts)
+                    async for chunk_text in _stream_gemini(system, prompt, model_name, max_output_tokens=max_tokens):
+                        buf += chunk_text
+                        yield {"type": "delta", "text": chunk_text}
+
+                    gemini_circuit_breaker.record_success()
+                    yield {"type": "result", "raw": buf, "parsed": _extract_json(buf), "provider": "gemini", "model": model_name}
+                    return
+                except Exception as e:
+                    logger.warning("Gemini Primary attempt %d failed (%s)", attempt + 1, e)
+                    buf = ""
+                    if not _is_transient_error(e) or attempt == attempts - 1:
+                        gemini_circuit_breaker.record_failure()
+                        break
+                    # Exponential backoff (1s + jitter)
+                    await asyncio.sleep(1.0 + random.uniform(0.1, 0.4))
+
+        # 2. Try Groq Fallback
+        if (os.environ.get('GROQ_API_KEY') or GROQ_API_KEY) and AsyncGroq:
+            try:
+                groq_model = model_name if provider == "groq" else os.environ.get('GROQ_MODEL', 'openai/gpt-oss-120b')
+                logger.info("Executing Fallback AI: Groq (%s)", groq_model)
+                async for chunk_text in _stream_groq(system, prompt, groq_model, max_output_tokens=max_tokens):
+                    buf += chunk_text
+                    yield {"type": "delta", "text": chunk_text}
+                yield {"type": "result", "raw": buf, "parsed": _extract_json(buf), "provider": "groq", "model": groq_model}
+                return
+            except Exception as e:
+                logger.warning("Groq Fallback failed (%s). Falling back to Deterministic Engine...", e)
+                buf = ""
 
     # 3. Fallback to Deterministic Mock Stream
     if "resume writer" in system.lower() or "optimized_resume" in prompt:
@@ -443,9 +480,9 @@ async def optimize_resume(resume_text: str, job_title: str, job_description: str
 
 # ---------------- Streaming Endpoint Functions ----------------
 async def analyze_stream(resume_text: str, job_title: str, job_description: str, model_key: str = DEFAULT_MODEL) -> AsyncGenerator[Dict[str, Any], None]:
-    prompt = ANALYZE_PROMPT.format(job_title=job_title, job_description=job_description, resume_text=resume_text[:12000])
+    prompt = ANALYZE_PROMPT.format(job_title=job_title, job_description=(job_description or "")[:8000], resume_text=(resume_text or "")[:12000])
     raw_ai = {}
-    async for ev in _run_stream(ANALYZE_SYSTEM, prompt, model_key):
+    async for ev in _run_stream(ANALYZE_SYSTEM, prompt, model_key, operation="analyze"):
         if ev.get("type") == "delta":
             yield ev
         elif ev.get("type") == "result":
@@ -457,16 +494,16 @@ async def analyze_stream(resume_text: str, job_title: str, job_description: str,
 
 async def optimize_stream(resume_text: str, job_title: str, job_description: str, aggressive: bool, model_key: str = DEFAULT_MODEL) -> AsyncGenerator[Dict[str, Any], None]:
     prompt = OPTIMIZE_PROMPT.format(
-        job_title=job_title, job_description=job_description,
-        resume_text=resume_text[:12000], aggressive="true" if aggressive else "false",
+        job_title=job_title, job_description=(job_description or "")[:8000],
+        resume_text=(resume_text or "")[:12000], aggressive="true" if aggressive else "false",
     )
-    async for ev in _run_stream(OPTIMIZE_SYSTEM, prompt, model_key):
+    async for ev in _run_stream(OPTIMIZE_SYSTEM, prompt, model_key, operation="optimize"):
         yield ev
 
 
 async def cover_letter_stream(resume_text: str, job_title: str, job_description: str, model_key: str = DEFAULT_MODEL) -> AsyncGenerator[Dict[str, Any], None]:
-    prompt = COVER_PROMPT.format(job_title=job_title, job_description=job_description, resume_text=resume_text[:12000])
-    async for ev in _run_stream(COVER_SYSTEM, prompt, model_key):
+    prompt = COVER_PROMPT.format(job_title=job_title, job_description=(job_description or "")[:8000], resume_text=(resume_text or "")[:12000])
+    async for ev in _run_stream(COVER_SYSTEM, prompt, model_key, operation="cover_letter"):
         yield ev
 
 
@@ -481,7 +518,7 @@ async def rewrite_bullet(
         instruction=instruction,
         job_description=(job_description or "")[:4000] if job_description else "N/A"
     )
-    async for ev in _run_stream(REWRITE_BULLET_SYSTEM, prompt, model_key):
+    async for ev in _run_stream(REWRITE_BULLET_SYSTEM, prompt, model_key, operation="rewrite_bullet"):
         if ev.get("type") == "result":
             parsed = ev.get("parsed") or {}
             res = (parsed.get("rewritten_bullet") or "").strip().lstrip("-•* ")
