@@ -407,7 +407,7 @@ async def _run_stream(
         yield {"type": "delta", "text": chunk}
         await asyncio.sleep(0.01)
 
-    yield {"type": "result", "raw": buf, "parsed": _extract_json(buf)}
+    yield {"type": "result", "raw": buf, "parsed": _extract_json(buf), "provider": "deterministic", "model": "mock-engine"}
 
 
 # ---------------- Unified Analysis Merger ----------------
