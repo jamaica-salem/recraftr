@@ -121,16 +121,23 @@ Ensure you have the following installed on your system:
    cd frontend
    ```
 
-2. **Install dependencies**:
-   ```bash
-   yarn install
-   # or: npm install
+2. **Configure Environment Variables**:
+   Create or edit the `.env` file in `frontend/` (see `frontend/.env.example`):
+   ```env
+   REACT_APP_BACKEND_URL=http://localhost:8000
+   PORT=3001
    ```
 
-3. **Start the development server**:
+3. **Install dependencies**:
    ```bash
-   yarn start
-   # or: npm start
+   npm install
+   # or: yarn install
+   ```
+
+4. **Start the development server**:
+   ```bash
+   npm start
+   # or: yarn start
    ```
 
 4. **Access the App**:
