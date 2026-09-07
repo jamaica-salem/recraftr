@@ -12,20 +12,6 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(null);
   const [ready, setReady] = useState(false);
 
-  useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        setToken(parsed.token);
-        setUser(parsed.user);
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    }
-    setReady(true);
-  }, []);
-
   const persist = useCallback((tok, usr) => {
     if (tok && usr) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: tok, user: usr }));
@@ -35,6 +21,56 @@ export function AuthProvider({ children }) {
     setToken(tok);
     setUser(usr);
   }, []);
+
+  useEffect(() => {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed?.token) {
+          setToken(parsed.token);
+          setUser(parsed.user);
+          // Validate token with backend
+          axios
+            .get(`${API}/auth/me`, {
+              headers: { Authorization: `Bearer ${parsed.token}` },
+            })
+            .then((res) => {
+              setUser(res.data);
+            })
+            .catch((err) => {
+              if (err?.response?.status === 401) {
+                console.warn("Stored auth token is invalid/expired. Clearing session.");
+                persist(null, null);
+              }
+            })
+            .finally(() => {
+              setReady(true);
+            });
+          return;
+        }
+      } catch {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    }
+    setReady(true);
+  }, [persist]);
+
+  useEffect(() => {
+    const interceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error?.response?.status === 401) {
+          const detail = error?.response?.data?.detail;
+          if (detail === "Invalid token" || detail === "Not authenticated") {
+            persist(null, null);
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+    return () => axios.interceptors.response.eject(interceptor);
+  }, [persist]);
 
   const login = async (email, password) => {
     const res = await axios.post(`${API}/auth/login`, { email, password });

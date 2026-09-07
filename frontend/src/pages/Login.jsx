@@ -92,6 +92,17 @@ export default function Login() {
             >
               {busy ? "Signing in..." : "Sign in"}
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setEmail("test@resumematch.ai");
+                setPassword("testpass123");
+              }}
+              className="w-full border-[#262626] bg-[#141414] hover:bg-[#1F1F1F] text-neutral-300 hover:text-white h-10 rounded-full text-xs font-normal"
+            >
+              ⚡ Quick Fill Demo Account
+            </Button>
           </div>
 
           <div className="mt-8 text-sm text-neutral-500">

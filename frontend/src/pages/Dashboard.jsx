@@ -100,7 +100,11 @@ Requirements & Qualifications:
       setCoverLetter("");
       toast.success("Loaded sample resume & job description! Click 'Analyze Resume' to test.");
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed to load sample resume");
+      if (e?.response?.status === 401) {
+        toast.error("Session expired or invalid token. Please sign in again.");
+      } else {
+        toast.error(e?.response?.data?.detail || "Failed to load sample resume");
+      }
     } finally {
       setLoading(null);
     }
