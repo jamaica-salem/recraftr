@@ -23,7 +23,7 @@ export default function Login() {
       await login(email, password);
       nav("/");
     } catch (e) {
-      setErr(e?.response?.data?.detail || "Login failed");
+      setErr(e?.message || e?.response?.data?.detail || "Login failed");
     } finally { setBusy(false); }
   };
 

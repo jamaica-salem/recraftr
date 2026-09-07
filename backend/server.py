@@ -23,6 +23,9 @@ from auth import (
     UserRegister, UserLogin,
     hash_password, verify_password, create_token, get_current_user, new_user_doc,
 )
+from db import get_db, Profile
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from resume_parser import parse_resume, parse_resume_async
 from file_security import validate_upload_file, FileValidationError
 from ai_security import ai_rate_limiter, record_ai_telemetry
@@ -45,8 +48,27 @@ api = APIRouter(prefix="/api")
 
 # ---------------- Auth ----------------
 @api.post("/auth/register")
-async def register(payload: UserRegister):
-    existing = await db.users.find_one({"email": payload.email.lower()})
+async def register(payload: UserRegister, session: AsyncSession = Depends(get_db)):
+    email_clean = payload.email.lower().strip()
+    from auth import supabase_admin
+    if supabase_admin:
+        try:
+            sp_res = supabase_admin.auth.admin.create_user({
+                "email": email_clean,
+                "password": payload.password,
+                "email_confirm": True,
+                "user_metadata": {"name": payload.name},
+            })
+            user_id = str(sp_res.user.id)
+            token = create_token(user_id)
+            return {"token": token, "user": {"id": user_id, "email": email_clean, "name": payload.name}}
+        except Exception as exc:
+            err_msg = str(exc).lower()
+            if "already" in err_msg and "registered" in err_msg or "unique" in err_msg:
+                raise HTTPException(status_code=400, detail="Email already registered")
+            logging.error(f"Supabase user registration error: {exc}")
+
+    existing = await db.users.find_one({"email": email_clean})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     doc = new_user_doc(payload.email, payload.name, hash_password(payload.password))
@@ -57,19 +79,81 @@ async def register(payload: UserRegister):
 
 @api.post("/auth/login")
 async def login(payload: UserLogin):
-    user = await db.users.find_one({"email": payload.email.lower()})
-    if not user or not verify_password(payload.password, user["password_hash"]):
+    email_clean = payload.email.lower().strip()
+    from auth import SUPABASE_URL, SUPABASE_ANON_KEY
+    if SUPABASE_URL and SUPABASE_ANON_KEY:
+        try:
+            from supabase import create_client
+            client_anon = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+            res = client_anon.auth.sign_in_with_password({"email": email_clean, "password": payload.password})
+            if res and res.session and res.user:
+                return {
+                    "token": res.session.access_token,
+                    "user": {
+                        "id": str(res.user.id),
+                        "email": res.user.email,
+                        "name": res.user.user_metadata.get("name") or res.user.email.split("@")[0],
+                    },
+                }
+        except Exception:
+            pass
+
+    user = await db.users.find_one({"email": email_clean})
+    if not user or not verify_password(payload.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_token(user["id"])
     return {"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"]}}
 
 
 @api.get("/auth/me")
-async def me(user_id: str = Depends(get_current_user)):
+async def me(
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    # 1. Check PostgreSQL profiles table
+    try:
+        user_uuid = uuid.UUID(user_id)
+        stmt = select(Profile).where(Profile.id == user_uuid)
+        result = await session.execute(stmt)
+        profile = result.scalar_one_or_none()
+        if profile:
+            return {
+                "id": str(profile.id),
+                "email": profile.email,
+                "name": profile.name,
+                "created_at": profile.created_at.isoformat() if profile.created_at else None,
+            }
+    except ValueError:
+        pass
+    except Exception as exc:
+        logging.warning(f"Error querying postgres profile: {exc}")
+
+    # 2. Check legacy MongoDB
     user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
+    if user:
+        return user
+
+    # 3. If authenticated via Supabase but profile row missing, auto-create in PostgreSQL
+    from auth import supabase_admin
+    if supabase_admin:
+        try:
+            sp_user = supabase_admin.auth.admin.get_user_by_id(user_id)
+            if sp_user and sp_user.user:
+                email = sp_user.user.email
+                name = sp_user.user.user_metadata.get("name") or (email.split("@")[0] if email else "User")
+                new_profile = Profile(id=uuid.UUID(user_id), email=email, name=name)
+                session.add(new_profile)
+                await session.commit()
+                return {
+                    "id": user_id,
+                    "email": email,
+                    "name": name,
+                    "created_at": sp_user.user.created_at,
+                }
+        except Exception as exc:
+            logging.warning(f"Error auto-syncing profile: {exc}")
+
+    raise HTTPException(status_code=404, detail="User not found")
 
 
 # ---------------- Resume upload / library ----------------

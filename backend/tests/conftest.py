@@ -7,7 +7,7 @@ import requests
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import LETTER
 
-BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8000").rstrip("/")
 API = f"{BASE_URL}/api"
 
 # Registered demo user (see /app/memory/test_credentials.md)

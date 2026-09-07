@@ -24,7 +24,7 @@ export default function Signup() {
       await signup(name, email, password);
       nav("/");
     } catch (e) {
-      setErr(e?.response?.data?.detail || "Signup failed");
+      setErr(e?.message || e?.response?.data?.detail || "Signup failed");
     } finally { setBusy(false); }
   };
 
