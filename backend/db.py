@@ -30,6 +30,10 @@ elif DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("p
 engine_kwargs: Dict[str, Any] = {
     "echo": False,
     "pool_pre_ping": True,
+    "connect_args": {
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+    },
 }
 
 # Only add pool size parameters if using pooled connection (not null pool)
