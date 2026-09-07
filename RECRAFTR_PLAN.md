@@ -69,20 +69,19 @@ Your target architecture should be roughly:
 
 Decide and document:
 
-* [ ] Frontend hosting
-* [ ] Backend hosting
-* [ ] Supabase project
-* [ ] Supabase Auth
-* [ ] PostgreSQL schema
-* [ ] File storage
-* [ ] AI providers
-* [ ] Payment provider
-* [ ] Domain
-* [ ] DNS
-* [ ] SSL/HTTPS
-* [ ] Backup destination
-* [ ] Email provider
-* [ ] Monitoring
+* [x] Frontend hosting (Vercel / Cloudflare Pages)
+* [x] Backend hosting (Linux VPS behind Nginx Reverse Proxy)
+* [x] Supabase project (PostgreSQL + Auth + Storage)
+* [x] Supabase Auth (JWT bearer token verified by FastAPI)
+* [x] PostgreSQL schema (schema.sql & db.py with profiles, resumes, analyses, applications, purchases, credit_transactions)
+* [x] File storage (Supabase private bucket 'resumes')
+* [x] AI providers (Google Gemini 3.5 Flash primary with Groq GPT-OSS fallback)
+* [x] Payment provider (PayMongo hosted checkout + webhook verification)
+* [x] Domain & DNS (Cloudflare DNS with proxying)
+* [x] SSL/HTTPS (Let's Encrypt / Cloudflare Full SSL)
+* [x] Backup destination (Automated pg_dump to encrypted private storage)
+* [x] Email provider (Supabase Auth built-in / custom SMTP)
+* [x] Monitoring (Uptime Kuma / Prometheus / Sentry)
 
 ---
 
@@ -117,18 +116,18 @@ Since you're switching databases, do this **before deployment**.
 
 ## Database design
 
-* [ ] Create `users`
-* [ ] Create `resumes`
-* [ ] Create `analyses`
-* [ ] Create `applications`
-* [ ] Create `purchases`
-* [ ] Create `credit_transactions`
-* [ ] Add primary keys
-* [ ] Add foreign keys
-* [ ] Add unique constraints
-* [ ] Add `created_at`
-* [ ] Add `updated_at`
-* [ ] Add appropriate indexes
+* [x] Create `users` (profiles)
+* [x] Create `resumes`
+* [x] Create `analyses`
+* [x] Create `applications`
+* [x] Create `purchases`
+* [x] Create `credit_transactions`
+* [x] Add primary keys
+* [x] Add foreign keys
+* [x] Add unique constraints
+* [x] Add `created_at`
+* [x] Add `updated_at`
+* [x] Add appropriate indexes
 
 Recommended relationships:
 
@@ -148,16 +147,16 @@ users
 
 ## Database security
 
-* [ ] Never expose DB credentials to frontend
-* [ ] Use SSL/TLS
-* [ ] Use connection pooling
-* [ ] Use parameterized queries
-* [ ] Use ORM/query builder safely
-* [ ] Add foreign-key constraints
-* [ ] Add database-level constraints where appropriate
-* [ ] Add indexes for frequently queried fields
-* [ ] Don't store passwords
-* [ ] Don't store payment card information
+* [x] Never expose DB credentials to frontend
+* [x] Use SSL/TLS
+* [x] Use connection pooling
+* [x] Use parameterized queries
+* [x] Use ORM/query builder safely
+* [x] Add foreign-key constraints
+* [x] Add database-level constraints where appropriate
+* [x] Add indexes for frequently queried fields
+* [x] Don't store passwords
+* [x] Don't store payment card information
 
 ---
 
