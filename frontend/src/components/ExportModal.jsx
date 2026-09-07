@@ -387,10 +387,14 @@ export default function ExportModal({
           {/* Right Live Preview Canvas Pane */}
           <div className="lg:col-span-7 flex flex-col bg-slate-950 rounded-xl border border-slate-800 overflow-hidden">
             {/* Viewport Control Bar */}
+            {/* Viewport Control Bar */}
             <div className="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800">
               <div className="flex items-center gap-2 text-xs font-medium text-slate-300">
                 <Eye className="w-3.5 h-3.5 text-indigo-400" />
                 <span>Live Canvas Preview</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
+                  A4 Paper (210 × 297mm)
+                </span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
                   Instant Sync
                 </span>
@@ -434,14 +438,15 @@ export default function ExportModal({
                 className="bg-white rounded shadow-2xl border border-slate-300 transition-transform origin-top"
                 style={{
                   width: "500px",
-                  minHeight: "650px",
+                  minHeight: "707px",
+                  aspectRatio: "210 / 297",
                   transform: `scale(${zoomScale})`,
                 }}
               >
                 <iframe
                   title="Live Resume Preview"
                   srcDoc={previewHtml}
-                  className="w-full h-full min-h-[650px] border-none rounded"
+                  className="w-full h-full min-h-[707px] border-none rounded"
                 />
               </div>
             </div>

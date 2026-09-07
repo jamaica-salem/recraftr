@@ -133,11 +133,17 @@ export function generateResumeHtmlPreview(
 <head>
 <meta charset="UTF-8">
 <style>
+  @page {
+    size: A4;
+    margin: 12mm 15mm;
+  }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #ffffff; }
   body {
     font-family: ${fontCss};
     color: ${base.bodyColor};
+    max-width: 210mm;
+    margin: 0 auto;
     padding: ${base.margin};
     line-height: 1.45;
     font-size: ${base.fontSizeBody}pt;

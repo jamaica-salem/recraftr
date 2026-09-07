@@ -2,7 +2,7 @@
 import io
 import re
 from typing import Optional, Dict, Any
-from reportlab.lib.pagesizes import LETTER
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.colors import HexColor
@@ -165,10 +165,10 @@ def build_pdf(
 
     buf = io.BytesIO()
     margin_pts = cfg["margin"] * inch
-    usable_width = 8.5 * inch - 2 * margin_pts
+    usable_width = A4[0] - 2 * margin_pts
 
     doc = SimpleDocTemplate(
-        buf, pagesize=LETTER,
+        buf, pagesize=A4,
         leftMargin=margin_pts, rightMargin=margin_pts,
         topMargin=margin_pts, bottomMargin=margin_pts,
         title="Resume"
@@ -329,7 +329,7 @@ def build_cover_letter_pdf(
     buf = io.BytesIO()
     margin_pts = cfg["margin"] * inch
     doc = SimpleDocTemplate(
-        buf, pagesize=LETTER,
+        buf, pagesize=A4,
         leftMargin=margin_pts, rightMargin=margin_pts,
         topMargin=margin_pts, bottomMargin=margin_pts,
         title="Cover Letter"
@@ -400,14 +400,19 @@ def build_html(
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{_escape(name_line or 'Resume')}</title>
 <style>
+  @page {
+    size: A4;
+    margin: 12mm 15mm;
+  }
   * {{ box-sizing: border-box; }}
+  html, body {{ margin: 0; padding: 0; }}
   body {{
     font-family: {font_family};
     color: {b_color};
     background-color: #ffffff;
-    max-width: 800px;
+    max-width: 210mm;
     margin: 0 auto;
-    padding: 32px 28px;
+    padding: 24px 28px;
     line-height: 1.45;
   }}
   .name {{
