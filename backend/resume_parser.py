@@ -101,10 +101,17 @@ async def parse_resume_async(filename: str, file_bytes: bytes, timeout_seconds: 
     """Asynchronously parse text from file bytes with OS Process-level isolation and a 10s timeout."""
     loop = asyncio.get_running_loop()
     try:
-        return await asyncio.wait_for(
-            loop.run_in_executor(_PROCESS_POOL, parse_resume, filename, file_bytes),
-            timeout=timeout_seconds,
-        )
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(_PROCESS_POOL, parse_resume, filename, file_bytes),
+                timeout=timeout_seconds,
+            )
+        except (OSError, RuntimeError) as pool_err:
+            # Fallback to thread execution if process pool fails due to OS stream/pipe/pty errors (e.g. Errno 5)
+            return await asyncio.wait_for(
+                asyncio.to_thread(parse_resume, filename, file_bytes),
+                timeout=timeout_seconds,
+            )
     except asyncio.TimeoutError:
         raise ValueError(f"File parsing timed out (max {int(timeout_seconds)}s). Document may be malformed or excessively complex.")
     except ValueError as ve:
