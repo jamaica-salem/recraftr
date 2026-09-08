@@ -35,6 +35,8 @@ from ai_security import ai_rate_limiter, record_ai_telemetry
 from api_security import (
     RequestSizeLimitMiddleware,
     APIRateLimitMiddleware,
+    SecurityHeadersMiddleware,
+    get_cors_origins,
     general_rate_limiter,
     sanitize_error_detail,
 )
@@ -1493,16 +1495,18 @@ async def health():
 
 app.include_router(api)
 
-# Security & CORS Middlewares (outermost executes first)
+# Security, CORS & Rate Limiting Middlewares (added in reverse order: outermost added last)
+app.add_middleware(RequestSizeLimitMiddleware)
+app.add_middleware(APIRateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=get_cors_origins(IS_PRODUCTION),
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-Request-ID"],
+    expose_headers=["Content-Disposition", "X-Request-ID", "Retry-After"],
 )
-app.add_middleware(RequestSizeLimitMiddleware)
-app.add_middleware(APIRateLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware, is_production=IS_PRODUCTION)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("recraftr")

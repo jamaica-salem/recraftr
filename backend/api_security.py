@@ -212,3 +212,111 @@ def sanitize_error_detail(detail: str) -> str:
         sanitized = sanitized[:300] + "..."
 
     return sanitized
+
+
+def get_cors_origins(is_production: bool = False) -> List[str]:
+    """Return strict whitelisted origins for CORS, forbidding wildcards in production with credentials."""
+    raw = os.environ.get("CORS_ORIGINS", "")
+    origins: List[str] = []
+    if raw.strip():
+        origins = [o.strip() for o in raw.split(",") if o.strip()]
+
+    prod_origins = [
+        "https://recraftr.com",
+        "https://www.recraftr.com",
+        "https://staging.recraftr.com",
+    ]
+
+    dev_origins = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ]
+
+    if is_production:
+        if "*" in origins:
+            logger.warning("CORS wildcard '*' disallowed in production with credentials. Falling back to production domains.")
+            origins = [o for o in origins if o != "*"]
+        if not origins:
+            return prod_origins
+        for po in prod_origins:
+            if po not in origins:
+                origins.append(po)
+        return origins
+
+    # Non-production: default to dev + prod origins
+    if not origins or origins == ["*"]:
+        return dev_origins + prod_origins
+
+    return origins
+
+
+class SecurityHeadersMiddleware:
+    """ASGI Middleware attaching OWASP-recommended security headers (HSTS, CSP, X-Content-Type-Options, etc.)."""
+
+    def __init__(self, app: ASGIApp, is_production: bool = False):
+        self.app = app
+        self.is_production = is_production
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers_dict = dict(scope.get("headers", []))
+
+        # In production, check for unencrypted HTTP traffic via reverse proxy header
+        if self.is_production:
+            proto = headers_dict.get(b"x-forwarded-proto", b"https").decode("latin1").lower()
+            if proto == "http":
+                host = headers_dict.get(b"host", b"recraftr.com").decode("latin1")
+                path = scope.get("path", "/")
+                redirect_url = f"https://{host}{path}"
+                response = JSONResponse(
+                    status_code=301,
+                    headers={"Location": redirect_url},
+                    content={"detail": "Redirecting to HTTPS"},
+                )
+                await response(scope, receive, send)
+                return
+
+        async def send_with_headers(message):
+            if message.get("type") == "http.response.start":
+                raw_headers = list(message.get("headers", []))
+                existing_keys = {k.lower() for k, _ in raw_headers}
+
+                def add_header(k: bytes, v: bytes):
+                    if k.lower() not in existing_keys:
+                        raw_headers.append((k, v))
+                        existing_keys.add(k.lower())
+
+                # Baseline security headers
+                add_header(b"x-content-type-options", b"nosniff")
+                add_header(b"x-frame-options", b"DENY")
+                add_header(b"referrer-policy", b"strict-origin-when-cross-origin")
+                add_header(b"permissions-policy", b"camera=(), microphone=(), geolocation=(), payment=()")
+                add_header(b"x-xss-protection", b"1; mode=block")
+
+                # Content-Security-Policy
+                csp = (
+                    "default-src 'self'; "
+                    "img-src 'self' data: https:; "
+                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                    "font-src 'self' https://fonts.gstatic.com data:; "
+                    "connect-src 'self' https://*.supabase.co https://api.groq.com https://generativelanguage.googleapis.com; "
+                    "frame-ancestors 'none'; "
+                    "base-uri 'self'; "
+                    "form-action 'self';"
+                )
+                add_header(b"content-security-policy", csp.encode("latin1"))
+
+                # Strict-Transport-Security (HSTS) in production
+                if self.is_production:
+                    add_header(b"strict-transport-security", b"max-age=31536000; includeSubDomains; preload")
+
+                message["headers"] = raw_headers
+
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
