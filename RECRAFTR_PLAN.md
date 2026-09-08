@@ -606,18 +606,18 @@ AI / parsing
 
 Initially:
 
-* [ ] You can skip Redis/Celery
-* [ ] Keep architecture simple
-* [ ] Add background jobs only when necessary
+* [x] You can skip Redis/Celery
+* [x] Keep architecture simple
+* [x] Add background jobs only when necessary
 
 When you do add them:
 
-* [ ] Queue
-* [ ] Job timeout
-* [ ] Retry limit
-* [ ] Duplicate-job protection
-* [ ] Concurrency limits
-* [ ] Failed-job handling
+* [x] Queue
+* [x] Job timeout
+* [x] Retry limit
+* [x] Duplicate-job protection
+* [x] Concurrency limits
+* [x] Failed-job handling
 
 ---
 

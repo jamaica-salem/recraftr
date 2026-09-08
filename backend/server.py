@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import io
 import time
 from contextlib import asynccontextmanager
@@ -58,9 +58,14 @@ DEBUG = os.environ.get("DEBUG", "true").lower() == "true"
 IS_PRODUCTION = (ENVIRONMENT in ("production", "prod")) or (not DEBUG)
 
 
+from job_queue import global_job_queue, Job, JobStatus
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await global_job_queue.start(num_workers=3)
     yield
+    await global_job_queue.stop()
     client.close()
 
 
@@ -1526,6 +1531,122 @@ async def readiness():
         return JSONResponse(status_code=503, content=status_details)
 
     return status_details
+
+
+# ---------------- Background Jobs ----------------
+async def handle_analyze_resume_job(job: Job) -> Dict[str, Any]:
+    resume_text = job.payload["resume_text"]
+    job_title = job.payload["job_title"]
+    job_description = job.payload["job_description"]
+    model = job.payload.get("model", DEFAULT_MODEL)
+    job.progress = 25
+    result = await analyze_resume(resume_text, job_title, job_description, model=model)
+    job.progress = 100
+    return result
+
+
+async def handle_parse_resume_job(job: Job) -> Dict[str, Any]:
+    import base64
+    filename = job.payload["filename"]
+    file_bytes = base64.b64decode(job.payload["file_b64"])
+    job.progress = 20
+    text = await parse_resume_async(filename, file_bytes, timeout_seconds=job.timeout_seconds)
+    job.progress = 100
+    return {"text": text, "char_count": len(text), "filename": filename}
+
+
+global_job_queue.register_handler("analyze_resume", handle_analyze_resume_job)
+global_job_queue.register_handler("parse_resume", handle_parse_resume_job)
+
+
+class EnqueueAnalyzeJobRequest(BaseModel):
+    resume_id: Optional[str] = None
+    resume_text: Optional[str] = Field(default=None, max_length=100000)
+    job_title: str = Field(..., min_length=2, max_length=150)
+    job_description: str = Field(..., min_length=20, max_length=30000)
+    model: Optional[str] = Field(default=DEFAULT_MODEL, max_length=100)
+
+
+@api.post("/jobs/analyze")
+async def enqueue_analyze_job(
+    payload: EnqueueAnalyzeJobRequest,
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Enqueue an asynchronous background resume analysis job."""
+    resume_text = payload.resume_text
+    if payload.resume_id:
+        stmt = select(Resume).where(
+            Resume.id == uuid.UUID(payload.resume_id),
+            Resume.user_id == uuid.UUID(user_id),
+        )
+        res = await session.execute(stmt)
+        r_row = res.scalar_one_or_none()
+        if r_row:
+            resume_text = r_row.text
+        else:
+            doc = await db.resumes.find_one({"id": payload.resume_id, "user_id": user_id})
+            if doc:
+                resume_text = doc.get("text", "")
+            else:
+                raise HTTPException(status_code=404, detail="Resume not found")
+
+    if not resume_text:
+        raise HTTPException(status_code=400, detail="Either resume_id or resume_text is required")
+
+    job = await global_job_queue.enqueue(
+        job_type="analyze_resume",
+        payload={
+            "resume_text": resume_text,
+            "job_title": payload.job_title,
+            "job_description": payload.job_description,
+            "model": payload.model,
+        },
+        user_id=user_id,
+        timeout_seconds=90.0,
+        max_retries=2,
+    )
+    return job.to_dict()
+
+
+@api.get("/jobs/{job_id}")
+async def get_job_status(
+    job_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Retrieve the status and progress of a background job (with IDOR protection)."""
+    job = global_job_queue.get_job(job_id, user_id=user_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job.to_dict()
+
+
+@api.delete("/jobs/{job_id}")
+async def cancel_job(
+    job_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Cancel a pending queued background job."""
+    success = await global_job_queue.cancel_job(job_id, user_id=user_id)
+    if not success:
+        job = global_job_queue.get_job(job_id, user_id=user_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=400, detail=f"Cannot cancel job in state '{job.status.value}'")
+    return {"ok": True, "job_id": job_id, "status": JobStatus.CANCELLED.value}
+
+
+@api.get("/jobs")
+async def list_jobs(
+    limit: int = 20,
+    offset: int = 0,
+    user_id: str = Depends(get_current_user),
+):
+    """List recent background jobs for the authenticated user."""
+    safe_limit = max(1, min(limit, 50))
+    safe_offset = max(0, offset)
+    jobs = global_job_queue.list_jobs(user_id=user_id, limit=safe_limit, offset=safe_offset)
+    return {"jobs": [j.to_dict() for j in jobs], "count": len(jobs)}
 
 
 app.include_router(api)
