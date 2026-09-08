@@ -10,7 +10,7 @@ import io
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Request, Query
 from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
@@ -159,14 +159,73 @@ async def login(payload: UserLogin):
     return {"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"]}}
 
 
+def safe_uuid(val: Any) -> uuid.UUID:
+    """Safely convert any identifier (string or UUID) into a valid RFC 4122 UUID."""
+    if isinstance(val, uuid.UUID):
+        return val
+    try:
+        return uuid.UUID(str(val))
+    except Exception:
+        return uuid.uuid5(uuid.NAMESPACE_DNS, str(val))
+
+
+async def ensure_profile_exists(user_id: str, session: AsyncSession) -> Profile:
+    """Ensure a corresponding Profile row exists in PostgreSQL for foreign key constraints."""
+    user_uuid = safe_uuid(user_id)
+    stmt = select(Profile).where(Profile.id == user_uuid)
+    res = await session.execute(stmt)
+    profile = res.scalar_one_or_none()
+    if profile:
+        return profile
+
+    email = f"{user_id}@example.com"
+    name = "User"
+    try:
+        user_doc = await db.users.find_one({"id": user_id})
+        if user_doc:
+            email = user_doc.get("email", email)
+            name = user_doc.get("name", name)
+    except Exception:
+        pass
+
+    try:
+        profile = Profile(id=user_uuid, email=email, name=name)
+        session.add(profile)
+        await session.commit()
+        return profile
+    except Exception:
+        await session.rollback()
+        stmt2 = select(Profile).where(Profile.id == user_uuid)
+        res2 = await session.execute(stmt2)
+        return res2.scalar_one_or_none()
+
+
+async def get_user_credits(user_id: str, session: AsyncSession) -> int:
+    try:
+        user_uuid = safe_uuid(user_id)
+        stmt = (
+            select(CreditTransaction)
+            .where(CreditTransaction.user_id == user_uuid)
+            .order_by(CreditTransaction.created_at.desc())
+            .limit(1)
+        )
+        res = await session.execute(stmt)
+        tx = res.scalar_one_or_none()
+        return tx.balance_after if tx else 0
+    except Exception:
+        return 0
+
+
 @api.get("/auth/me")
 async def me(
     user_id: str = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
+    credits = await get_user_credits(user_id, session)
+
     # 1. Check PostgreSQL profiles table
     try:
-        user_uuid = uuid.UUID(user_id)
+        user_uuid = safe_uuid(user_id)
         stmt = select(Profile).where(Profile.id == user_uuid)
         result = await session.execute(stmt)
         profile = result.scalar_one_or_none()
@@ -176,6 +235,7 @@ async def me(
                 "email": profile.email,
                 "name": profile.name,
                 "created_at": profile.created_at.isoformat() if profile.created_at else None,
+                "credits": credits,
             }
     except ValueError:
         pass
@@ -185,6 +245,7 @@ async def me(
     # 2. Check legacy MongoDB
     user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
     if user:
+        user["credits"] = credits
         return user
 
     # 3. If authenticated via Supabase but profile row missing, auto-create in PostgreSQL
@@ -203,6 +264,7 @@ async def me(
                     "email": email,
                     "name": name,
                     "created_at": sp_user.user.created_at,
+                    "credits": credits,
                 }
         except Exception as exc:
             logging.warning(f"Error auto-syncing profile: {exc}")
@@ -1647,6 +1709,378 @@ async def list_jobs(
     safe_offset = max(0, offset)
     jobs = global_job_queue.list_jobs(user_id=user_id, limit=safe_limit, offset=safe_offset)
     return {"jobs": [j.to_dict() for j in jobs], "count": len(jobs)}
+
+
+# ---------------- Payments (PayMongo) & Credits ----------------
+from paymongo_service import (
+    get_packages_list,
+    get_topups_list,
+    get_package,
+    calculate_custom_topup,
+    create_checkout_session,
+    verify_webhook_signature,
+    PACKAGES,
+    TOPUP_PACKAGES,
+)
+
+
+class CheckoutRequest(BaseModel):
+    package_id: str
+    currency: Optional[str] = "PHP"
+    custom_credits: Optional[int] = None
+    success_url: Optional[str] = None
+    cancel_url: Optional[str] = None
+
+
+class MockCompleteRequest(BaseModel):
+    package_id: str
+    session_id: Optional[str] = None
+    currency: Optional[str] = "PHP"
+    custom_credits: Optional[int] = None
+
+
+@api.get("/payments/custom-quote")
+async def get_custom_quote(
+    credits: int = Query(default=10, ge=5, le=500),
+    currency: Optional[str] = "PHP",
+):
+    """Calculate authoritative server quote for a custom number of applications."""
+    selected_curr = "USD" if (currency or "").upper() == "USD" else "PHP"
+    return calculate_custom_topup(credits=credits, currency=selected_curr)
+
+
+@api.get("/payments/packages")
+async def get_payment_packages(
+    request: Request,
+    currency: Optional[str] = None,
+    category: Optional[str] = None,
+):
+    """Retrieve available credit packages with authoritative prices and benefits."""
+    selected_curr = (currency or "").upper()
+    if selected_curr not in ("PHP", "USD"):
+        cf_country = request.headers.get("CF-IPCountry", "").upper()
+        selected_curr = "PHP" if cf_country in ("PH", "") else "USD"
+
+    plans = get_packages_list(currency=selected_curr)
+    topups = get_topups_list(currency=selected_curr)
+
+    if category == "topup":
+        return {"packages": topups, "topups": topups, "currency": selected_curr}
+    elif category == "plans":
+        return {"packages": plans, "topups": topups, "currency": selected_curr}
+
+    return {
+        "packages": plans,
+        "topups": topups,
+        "currency": selected_curr,
+    }
+
+
+@api.get("/payments/balance")
+async def get_credit_balance(
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Retrieve the current user's available credit balance from credit ledger."""
+    balance = await get_user_credits(user_id, session)
+    return {"balance": balance, "user_id": user_id}
+
+
+@api.post("/payments/checkout")
+async def create_checkout(
+    payload: CheckoutRequest,
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Initiate a PayMongo Hosted Checkout session."""
+    pkg = get_package(payload.package_id, currency=payload.currency or "PHP", custom_credits=payload.custom_credits)
+    if not pkg:
+        raise HTTPException(status_code=400, detail=f"Invalid package '{payload.package_id}'")
+
+    profile = await ensure_profile_exists(user_id, session)
+    user_email = profile.email if profile else "user@example.com"
+    user_name = profile.name if profile else "Recraftr User"
+    user_uuid = safe_uuid(user_id)
+
+    # Success and Cancel URLs
+    default_base = os.environ.get("FRONTEND_URL", "http://localhost:3001")
+    success_url = payload.success_url or f"{default_base}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = payload.cancel_url or f"{default_base}/pricing?status=cancelled"
+
+    try:
+        checkout_data = await create_checkout_session(
+            user_id=user_id,
+            user_email=user_email,
+            user_name=user_name,
+            package_id=pkg["id"],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            currency=pkg["currency"],
+            custom_credits=payload.custom_credits,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Payment gateway error: {exc}")
+
+    # Record initial pending purchase in PostgreSQL
+    try:
+        purchase_id = uuid.uuid4()
+        new_purchase = Purchase(
+            id=purchase_id,
+            user_id=user_uuid,
+            paymongo_payment_id=checkout_data["checkout_session_id"],
+            amount=pkg["amount"],
+            currency=pkg["currency"],
+            package_name=pkg["id"],
+            credits_granted=0,
+            status="pending",
+        )
+        session.add(new_purchase)
+        await session.commit()
+    except Exception as exc:
+        logging.warning(f"Could not log pending purchase to PostgreSQL: {exc}")
+
+    return checkout_data
+
+
+@api.post("/payments/webhook")
+async def paymongo_webhook(
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Secure PayMongo Webhook receiver.
+    Verifies cryptographic HMAC signature, validates amount and package,
+    enforces idempotency, marks purchase paid, and records credit transaction.
+    """
+    raw_body = await request.body()
+    sig_header = request.headers.get("Paymongo-Signature") or request.headers.get("paymongo-signature")
+
+    # Cryptographic signature validation
+    if not verify_webhook_signature(raw_body, sig_header):
+        logging.warning("Rejected webhook: Invalid or missing Paymongo-Signature header")
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+    try:
+        event = json.loads(raw_body.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed JSON payload")
+
+    data = event.get("data", {})
+    event_type = data.get("attributes", {}).get("type")
+
+    # We listen for checkout_session.payment.paid
+    if event_type != "checkout_session.payment.paid":
+        return {"status": "ignored", "event_type": event_type}
+
+    event_data = data.get("attributes", {}).get("data", {})
+    attributes = event_data.get("attributes", {})
+    metadata = attributes.get("metadata", {})
+    user_id_str = metadata.get("user_id")
+    package_id = metadata.get("package_id")
+    meta_currency = metadata.get("currency", "PHP")
+
+    if not user_id_str or not package_id:
+        logging.warning(f"Webhook missing user_id or package_id in metadata: {metadata}")
+        return {"status": "missing_metadata"}
+
+    pkg = get_package(package_id, currency=meta_currency)
+    if not pkg:
+        logging.warning(f"Webhook referenced unknown package: {package_id}")
+        return {"status": "unknown_package"}
+
+    # Extract payment ID
+    payments = attributes.get("payments", [])
+    payment_id = payments[0].get("id") if payments else attributes.get("payment_intent_id") or event_data.get("id")
+
+    # Idempotency Check: verify this payment has not already been credited
+    try:
+        user_uuid = safe_uuid(user_id_str)
+        await ensure_profile_exists(user_id_str, session)
+
+        stmt = select(Purchase).where(
+            (Purchase.paymongo_payment_id == payment_id) & (Purchase.status == "paid")
+        )
+        res = await session.execute(stmt)
+        if res.scalar_one_or_none():
+            logging.info(f"Idempotent skip: payment {payment_id} was already processed.")
+            return {"status": "already_processed"}
+
+        # Query latest balance
+        current_balance = await get_user_credits(user_id_str, session)
+        new_balance = current_balance + pkg["credits"]
+
+        # Insert new credit transaction ledger row
+        tx_id = uuid.uuid4()
+        credit_tx = CreditTransaction(
+            id=tx_id,
+            user_id=user_uuid,
+            amount=pkg["credits"],
+            action_type="purchase",
+            balance_after=new_balance,
+            metadata_json={
+                "package_id": pkg["id"],
+                "paymongo_payment_id": payment_id,
+                "amount": float(pkg["amount"]),
+                "currency": pkg["currency"],
+            },
+        )
+        session.add(credit_tx)
+
+        # Update purchase record to paid
+        purch_stmt = select(Purchase).where(Purchase.paymongo_payment_id == event_data.get("id"))
+        p_res = await session.execute(purch_stmt)
+        purchase = p_res.scalar_one_or_none()
+        if purchase:
+            purchase.status = "paid"
+            purchase.credits_granted = pkg["credits"]
+            purchase.paymongo_payment_id = payment_id
+        else:
+            session.add(
+                Purchase(
+                    id=uuid.uuid4(),
+                    user_id=user_uuid,
+                    paymongo_payment_id=payment_id,
+                    amount=pkg["amount"],
+                    currency=pkg["currency"],
+                    package_name=pkg["id"],
+                    credits_granted=pkg["credits"],
+                    status="paid",
+                )
+            )
+
+        await session.commit()
+        logging.info(f"Successfully credited {pkg['credits']} to user {user_id_str} for payment {payment_id}")
+    except Exception as exc:
+        await session.rollback()
+        logging.error(f"Error executing database credit transaction: {exc}")
+        raise HTTPException(status_code=500, detail="Database error during fulfillment")
+
+    return {"status": "success", "credits_granted": pkg["credits"]}
+
+
+@api.post("/payments/mock-complete")
+async def complete_mock_payment(
+    payload: MockCompleteRequest,
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Local simulation helper for developers/testers when PayMongo live webhooks
+    are not yet bound to localhost. Only active in mock/development mode.
+    """
+    pkg = get_package(payload.package_id, currency=payload.currency or "PHP", custom_credits=payload.custom_credits)
+    if not pkg:
+        raise HTTPException(status_code=400, detail="Invalid package")
+
+    try:
+        user_uuid = safe_uuid(user_id)
+        await ensure_profile_exists(user_id, session)
+        mock_payment_id = payload.session_id or f"pay_mock_{uuid.uuid4().hex[:12]}"
+
+        # Check if already processed
+        stmt = select(Purchase).where(
+            (Purchase.paymongo_payment_id == mock_payment_id) & (Purchase.status == "paid")
+        )
+        res = await session.execute(stmt)
+        if res.scalar_one_or_none():
+            current_balance = await get_user_credits(user_id, session)
+            return {"status": "already_processed", "balance": current_balance}
+
+        # Query latest balance
+        current_balance = await get_user_credits(user_id, session)
+        new_balance = current_balance + pkg["credits"]
+
+        session.add(
+            CreditTransaction(
+                id=uuid.uuid4(),
+                user_id=user_uuid,
+                amount=pkg["credits"],
+                action_type="purchase",
+                balance_after=new_balance,
+                metadata_json={"package_id": pkg["id"], "currency": pkg["currency"], "mock": True},
+            )
+        )
+        purch_stmt = select(Purchase).where(Purchase.paymongo_payment_id == mock_payment_id)
+        p_res = await session.execute(purch_stmt)
+        existing_purch = p_res.scalar_one_or_none()
+        if existing_purch:
+            existing_purch.status = "paid"
+            existing_purch.credits_granted = pkg["credits"]
+            existing_purch.amount = pkg["amount"]
+            existing_purch.package_name = pkg["id"]
+        else:
+            session.add(
+                Purchase(
+                    id=uuid.uuid4(),
+                    user_id=user_uuid,
+                    paymongo_payment_id=mock_payment_id,
+                    amount=pkg["amount"],
+                    currency=pkg["currency"],
+                    package_name=pkg["id"],
+                    credits_granted=pkg["credits"],
+                    status="paid",
+                )
+            )
+        await session.commit()
+        return {"status": "success", "credits_granted": pkg["credits"], "new_balance": new_balance}
+    except Exception as exc:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Simulation error: {exc}")
+
+
+@api.get("/payments/history")
+async def get_payment_history(
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Retrieve purchase history and credit transactions for the current user."""
+    try:
+        user_uuid = safe_uuid(user_id)
+        purch_stmt = (
+            select(Purchase)
+            .where(Purchase.user_id == user_uuid)
+            .order_by(Purchase.created_at.desc())
+            .limit(20)
+        )
+        purch_res = await session.execute(purch_stmt)
+        purchases = purch_res.scalars().all()
+
+        tx_stmt = (
+            select(CreditTransaction)
+            .where(CreditTransaction.user_id == user_uuid)
+            .order_by(CreditTransaction.created_at.desc())
+            .limit(20)
+        )
+        tx_res = await session.execute(tx_stmt)
+        transactions = tx_res.scalars().all()
+
+        return {
+            "purchases": [
+                {
+                    "id": str(p.id),
+                    "amount": float(p.amount),
+                    "currency": p.currency,
+                    "package_name": p.package_name,
+                    "credits_granted": p.credits_granted,
+                    "status": p.status,
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                }
+                for p in purchases
+            ],
+            "transactions": [
+                {
+                    "id": str(t.id),
+                    "amount": t.amount,
+                    "action_type": t.action_type,
+                    "balance_after": t.balance_after,
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                }
+                for t in transactions
+            ],
+        }
+    except Exception as exc:
+        logging.warning(f"Error fetching payment history: {exc}")
+        return {"purchases": [], "transactions": []}
 
 
 app.include_router(api)
