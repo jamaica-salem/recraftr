@@ -156,8 +156,14 @@ export function AuthProvider({ children }) {
 
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
+  const refreshProfile = useCallback(() => {
+    if (token) {
+      return syncProfile(token, user);
+    }
+  }, [token, user, syncProfile]);
+
   return (
-    <AuthContext.Provider value={{ user, token, ready, login, signup, logout, authHeaders }}>
+    <AuthContext.Provider value={{ user, token, ready, login, signup, logout, authHeaders, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

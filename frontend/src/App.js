@@ -9,6 +9,8 @@ import Dashboard from "@/pages/Dashboard";
 import History from "@/pages/History";
 import Compare from "@/pages/Compare";
 import Tracker from "@/pages/Tracker";
+import Pricing from "@/pages/Pricing";
+import CheckoutSuccess from "@/pages/CheckoutSuccess";
 
 function Protected({ children }) {
   const { user, ready } = useAuth();
@@ -36,6 +38,8 @@ export default function App() {
             <Route path="/tracker" element={<Protected><Tracker /></Protected>} />
             <Route path="/history" element={<Protected><History /></Protected>} />
             <Route path="/compare" element={<Protected><Compare /></Protected>} />
+            <Route path="/pricing" element={<Protected><Pricing /></Protected>} />
+            <Route path="/checkout/success" element={<Protected><CheckoutSuccess /></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
