@@ -400,10 +400,10 @@ def build_html(
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{_escape(name_line or 'Resume')}</title>
 <style>
-  @page {
+  @page {{
     size: A4;
     margin: 12mm 15mm;
-  }
+  }}
   * {{ box-sizing: border-box; }}
   html, body {{ margin: 0; padding: 0; }}
   body {{
