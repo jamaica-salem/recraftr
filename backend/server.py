@@ -22,8 +22,9 @@ load_dotenv(ROOT_DIR / ".env")
 from auth import (
     UserRegister, UserLogin,
     hash_password, verify_password, create_token, get_current_user, new_user_doc,
+    supabase_admin,
 )
-from db import get_db, Profile
+from db import get_db, Profile, Resume, Analysis, Application, Purchase, CreditTransaction
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from resume_parser import parse_resume, parse_resume_async
@@ -168,6 +169,7 @@ class UploadResumeResponse(BaseModel):
 async def upload_resume(
     file: UploadFile = File(...),
     user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
 ):
     contents = await file.read()
     
@@ -198,13 +200,46 @@ async def upload_resume(
         )
 
     resume_id = str(uuid.uuid4())
+    ext = Path(sanitized_filename).suffix.lower() or ".pdf"
+    storage_path = f"{user_id}/{resume_id}{ext}"
+
+    # 3. Upload file bytes to private Supabase Storage bucket
+    if supabase_admin:
+        try:
+            content_type = file.content_type or "application/octet-stream"
+            supabase_admin.storage.from_("resumes").upload(
+                path=storage_path,
+                file=contents,
+                file_options={"content-type": content_type, "upsert": "true"},
+            )
+        except Exception as exc:
+            logging.warning(f"Could not upload file to Supabase Storage: {exc}")
+
+    # 4. Insert record into PostgreSQL resumes table with strict ownership
+    try:
+        new_resume = Resume(
+            id=uuid.UUID(resume_id),
+            user_id=uuid.UUID(user_id),
+            filename=sanitized_filename,
+            text=text,
+            storage_path=storage_path,
+            char_count=len(text),
+        )
+        session.add(new_resume)
+        await session.commit()
+    except Exception as exc:
+        logging.warning(f"Error persisting resume to postgres: {exc}")
+
+    # 5. Dual-write to MongoDB for backward compatibility
     await db.resumes.insert_one({
         "id": resume_id,
         "user_id": user_id,
         "filename": sanitized_filename,
         "text": text,
+        "storage_path": storage_path,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
+
     return UploadResumeResponse(
         resume_id=resume_id, filename=sanitized_filename,
         text_preview=text[:400], char_count=len(text),
@@ -212,7 +247,36 @@ async def upload_resume(
 
 
 @api.get("/resumes")
-async def list_resumes(user_id: str = Depends(get_current_user)):
+async def list_resumes(
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    try:
+        user_uuid = uuid.UUID(user_id)
+        stmt = (
+            select(Resume)
+            .where(Resume.user_id == user_uuid)
+            .order_by(Resume.created_at.desc())
+            .limit(50)
+        )
+        res = await session.execute(stmt)
+        rows = res.scalars().all()
+        if rows:
+            items = [
+                {
+                    "id": str(r.id),
+                    "filename": r.filename,
+                    "char_count": r.char_count,
+                    "storage_path": r.storage_path,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows
+            ]
+            return {"items": items}
+    except Exception as exc:
+        logging.warning(f"Error reading resumes from postgres: {exc}")
+
+    # Fallback to Mongo
     rows = await db.resumes.find(
         {"user_id": user_id}, {"_id": 0, "text": 0}
     ).sort("created_at", -1).to_list(50)
@@ -220,9 +284,35 @@ async def list_resumes(user_id: str = Depends(get_current_user)):
 
 
 @api.delete("/resumes/{resume_id}")
-async def delete_resume(resume_id: str, user_id: str = Depends(get_current_user)):
-    res = await db.resumes.delete_one({"id": resume_id, "user_id": user_id})
-    if res.deleted_count == 0:
+async def delete_resume(
+    resume_id: str,
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    deleted = False
+    try:
+        r_uuid = uuid.UUID(resume_id)
+        u_uuid = uuid.UUID(user_id)
+        stmt = select(Resume).where(Resume.id == r_uuid, Resume.user_id == u_uuid)
+        res = await session.execute(stmt)
+        resume = res.scalar_one_or_none()
+        if resume:
+            if resume.storage_path and supabase_admin:
+                try:
+                    supabase_admin.storage.from_("resumes").remove([resume.storage_path])
+                except Exception as exc:
+                    logging.warning(f"Error removing storage file: {exc}")
+            await session.delete(resume)
+            await session.commit()
+            deleted = True
+    except Exception as exc:
+        logging.warning(f"Error deleting resume from postgres: {exc}")
+
+    mongo_res = await db.resumes.delete_one({"id": resume_id, "user_id": user_id})
+    if mongo_res.deleted_count > 0:
+        deleted = True
+
+    if not deleted:
         raise HTTPException(status_code=404, detail="Resume not found")
     return {"ok": True}
 
@@ -236,18 +326,162 @@ class AnalyzeRequest(BaseModel):
     model: Optional[str] = DEFAULT_MODEL
 
 
+async def _save_analysis_record(
+    analysis_id: str,
+    user_id: str,
+    job_title: str,
+    job_description: str,
+    model_name: str,
+    analysis_data: dict,
+    resume_id: Optional[str] = None,
+    resume_filename: Optional[str] = None,
+    optimized_resume: Optional[str] = None,
+    changes_summary: Optional[list] = None,
+    cover_letter: Optional[str] = None,
+):
+    # 1. Save to PostgreSQL
+    try:
+        from db import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            r_uuid = None
+            if resume_id:
+                try:
+                    r_uuid = uuid.UUID(resume_id)
+                except ValueError:
+                    r_uuid = None
+            new_analysis = Analysis(
+                id=uuid.UUID(analysis_id),
+                user_id=uuid.UUID(user_id),
+                resume_id=r_uuid,
+                resume_filename=resume_filename,
+                job_title=job_title,
+                job_description=job_description,
+                analysis=analysis_data,
+                model=model_name,
+                optimized_resume=optimized_resume,
+                predicted_ats_score=(analysis_data or {}).get("ats_score"),
+                changes_summary=changes_summary or [],
+                cover_letter=cover_letter,
+            )
+            session.add(new_analysis)
+            await session.commit()
+    except Exception as exc:
+        logging.warning(f"Could not persist analysis to postgres: {exc}")
+
+    # 2. Dual-write to MongoDB
+    doc = {
+        "id": analysis_id,
+        "user_id": user_id,
+        "resume_id": resume_id or analysis_id,
+        "resume_filename": resume_filename,
+        "job_title": job_title,
+        "job_description": job_description,
+        "model": model_name,
+        "analysis": analysis_data,
+        "optimization": {"optimized_resume": optimized_resume, "changes_summary": changes_summary} if optimized_resume else None,
+        "cover_letter": cover_letter,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.analyses.insert_one(doc)
+
+
+async def _update_analysis_record(
+    analysis_id: str,
+    user_id: str,
+    updates: dict,
+):
+    # 1. Update in PostgreSQL
+    try:
+        from db import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            stmt = select(Analysis).where(
+                Analysis.id == uuid.UUID(analysis_id),
+                Analysis.user_id == uuid.UUID(user_id)
+            )
+            res = await session.execute(stmt)
+            row = res.scalar_one_or_none()
+            if row:
+                if "optimized_resume" in updates:
+                    row.optimized_resume = updates["optimized_resume"]
+                if "predicted_ats_score" in updates:
+                    row.predicted_ats_score = updates["predicted_ats_score"]
+                if "changes_summary" in updates:
+                    row.changes_summary = updates["changes_summary"]
+                if "cover_letter" in updates:
+                    row.cover_letter = updates["cover_letter"]
+                row.updated_at = datetime.now(timezone.utc)
+                await session.commit()
+    except Exception as exc:
+        logging.warning(f"Could not update analysis in postgres: {exc}")
+
+    # 2. Update in MongoDB
+    await db.analyses.update_one(
+        {"id": analysis_id, "user_id": user_id},
+        {"$set": updates}
+    )
+
+
+async def _get_resume_text(row: dict, user_id: str) -> str:
+    resume_id = row.get("resume_id")
+    if resume_id:
+        # 1. Try PostgreSQL
+        try:
+            from db import AsyncSessionLocal
+            async with AsyncSessionLocal() as session:
+                stmt = select(Resume).where(
+                    Resume.id == uuid.UUID(resume_id),
+                    Resume.user_id == uuid.UUID(user_id)
+                )
+                res = await session.execute(stmt)
+                pg_resume = res.scalar_one_or_none()
+                if pg_resume and pg_resume.text:
+                    return pg_resume.text
+        except Exception:
+            pass
+
+        # 2. Try MongoDB
+        resume = await db.resumes.find_one({"id": resume_id, "user_id": user_id})
+        if resume and resume.get("text"):
+            return resume["text"]
+
+    if row.get("original_resume_text"):
+        return row["original_resume_text"]
+    analysis_text = (row.get("analysis") or {}).get("resume_text")
+    if analysis_text:
+        return analysis_text
+    opt_text = (row.get("optimization") or {}).get("optimized_resume") or row.get("optimized_resume")
+    if opt_text:
+        return opt_text
+    raise HTTPException(status_code=404, detail="Original resume text not found")
+
+
 @api.post("/analyze")
-async def analyze(payload: AnalyzeRequest, user_id: str = Depends(get_current_user)):
+async def analyze(
+    payload: AnalyzeRequest,
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
     resume_text = payload.resume_text
     resume_filename = "optimized_resume.pdf"
     resume_id = payload.resume_id
 
     if payload.resume_id:
-        resume = await db.resumes.find_one({"id": payload.resume_id, "user_id": user_id})
-        if not resume:
-            raise HTTPException(status_code=404, detail="Resume not found")
-        resume_text = resume["text"]
-        resume_filename = resume.get("filename")
+        try:
+            stmt = select(Resume).where(Resume.id == uuid.UUID(payload.resume_id), Resume.user_id == uuid.UUID(user_id))
+            res = await session.execute(stmt)
+            pg_resume = res.scalar_one_or_none()
+            if pg_resume:
+                resume_text = pg_resume.text
+                resume_filename = pg_resume.filename
+        except Exception:
+            pass
+
+        if not resume_text:
+            resume = await db.resumes.find_one({"id": payload.resume_id, "user_id": user_id})
+            if not resume:
+                raise HTTPException(status_code=404, detail="Resume not found")
+            resume_text = resume["text"]
+            resume_filename = resume.get("filename")
 
     if not resume_text or len(resume_text.strip()) < 20:
         raise HTTPException(status_code=400, detail="Resume text or resume_id is required")
@@ -262,14 +496,16 @@ async def analyze(payload: AnalyzeRequest, user_id: str = Depends(get_current_us
         raise HTTPException(status_code=502, detail="AI returned an invalid response")
 
     analysis_id = str(uuid.uuid4())
-    await db.analyses.insert_one({
-        "id": analysis_id, "user_id": user_id,
-        "resume_id": resume_id or analysis_id, "resume_filename": resume_filename,
-        "job_title": payload.job_title, "job_description": payload.job_description,
-        "model": payload.model or DEFAULT_MODEL,
-        "analysis": result, "optimization": None,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
+    await _save_analysis_record(
+        analysis_id=analysis_id,
+        user_id=user_id,
+        job_title=payload.job_title,
+        job_description=payload.job_description,
+        model_name=payload.model or DEFAULT_MODEL,
+        analysis_data=result,
+        resume_id=resume_id,
+        resume_filename=resume_filename,
+    )
     return {"analysis_id": analysis_id, **result}
 
 
@@ -278,28 +514,35 @@ class OptimizeRequest(BaseModel):
     aggressive: bool = False
 
 
-async def _get_resume_text(row: dict, user_id: str) -> str:
-    resume_id = row.get("resume_id")
-    if resume_id:
-        resume = await db.resumes.find_one({"id": resume_id, "user_id": user_id})
-        if resume and resume.get("text"):
-            return resume["text"]
-    if row.get("original_resume_text"):
-        return row["original_resume_text"]
-    analysis_text = (row.get("analysis") or {}).get("resume_text")
-    if analysis_text:
-        return analysis_text
-    opt_text = (row.get("optimization") or {}).get("optimized_resume")
-    if opt_text:
-        return opt_text
-    raise HTTPException(status_code=404, detail="Original resume text not found")
-
-
 @api.post("/optimize")
-async def optimize(payload: OptimizeRequest, user_id: str = Depends(get_current_user)):
-    row = await db.analyses.find_one({"id": payload.analysis_id, "user_id": user_id})
+async def optimize(
+    payload: OptimizeRequest,
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    row = None
+    try:
+        stmt = select(Analysis).where(Analysis.id == uuid.UUID(payload.analysis_id), Analysis.user_id == uuid.UUID(user_id))
+        res = await session.execute(stmt)
+        pg_row = res.scalar_one_or_none()
+        if pg_row:
+            row = {
+                "id": str(pg_row.id),
+                "resume_id": str(pg_row.resume_id) if pg_row.resume_id else None,
+                "job_title": pg_row.job_title,
+                "job_description": pg_row.job_description,
+                "model": pg_row.model,
+                "analysis": pg_row.analysis,
+                "optimized_resume": pg_row.optimized_resume,
+            }
+    except Exception:
+        pass
+
+    if not row:
+        row = await db.analyses.find_one({"id": payload.analysis_id, "user_id": user_id})
     if not row:
         raise HTTPException(status_code=404, detail="Analysis not found")
+
     resume_text = await _get_resume_text(row, user_id)
     try:
         result = await optimize_resume(
@@ -311,13 +554,18 @@ async def optimize(payload: OptimizeRequest, user_id: str = Depends(get_current_
     if not result or "optimized_resume" not in result:
         raise HTTPException(status_code=502, detail="AI returned an invalid response")
 
-    await db.analyses.update_one(
-        {"id": payload.analysis_id},
-        {"$set": {
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await _update_analysis_record(
+        analysis_id=payload.analysis_id,
+        user_id=user_id,
+        updates={
             "optimization": {**result, "aggressive": payload.aggressive},
+            "optimized_resume": result.get("optimized_resume"),
+            "predicted_ats_score": result.get("predicted_ats_score"),
+            "changes_summary": result.get("changes_summary", []),
             "original_resume_text": resume_text,
-            "optimized_at": datetime.now(timezone.utc).isoformat(),
-        }},
+            "optimized_at": now_iso,
+        }
     )
     return {"analysis_id": payload.analysis_id, "original_resume_text": resume_text, **result}
 
@@ -375,14 +623,16 @@ async def analyze_stream_endpoint(payload: AnalyzeRequest, request: Request, use
             if not final or "ats_score" not in final:
                 yield _sse({"type": "error", "error": "AI returned an invalid response"}); return
             analysis_id = str(uuid.uuid4())
-            await db.analyses.insert_one({
-                "id": analysis_id, "user_id": user_id,
-                "resume_id": resume_id or analysis_id, "resume_filename": resume_filename,
-                "job_title": payload.job_title, "job_description": payload.job_description,
-                "model": payload.model or DEFAULT_MODEL,
-                "analysis": final, "optimization": None,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            })
+            await _save_analysis_record(
+                analysis_id=analysis_id,
+                user_id=user_id,
+                job_title=payload.job_title,
+                job_description=payload.job_description,
+                model_name=model_name,
+                analysis_data=final,
+                resume_id=resume_id,
+                resume_filename=resume_filename,
+            )
             latency_ms = (time.time() - start_time) * 1000
             await record_ai_telemetry(
                 db, user_id, "analyze", provider, model_name,
@@ -427,13 +677,19 @@ async def optimize_stream_endpoint(payload: OptimizeRequest, request: Request, u
                     model_name = ev.get("model", model_name)
             if not final or "optimized_resume" not in final:
                 yield _sse({"type": "error", "error": "AI returned an invalid response"}); return
-            await db.analyses.update_one(
-                {"id": payload.analysis_id},
-                {"$set": {
+            
+            now_iso = datetime.now(timezone.utc).isoformat()
+            await _update_analysis_record(
+                analysis_id=payload.analysis_id,
+                user_id=user_id,
+                updates={
                     "optimization": {**final, "aggressive": payload.aggressive},
+                    "optimized_resume": final.get("optimized_resume"),
+                    "predicted_ats_score": final.get("predicted_ats_score"),
+                    "changes_summary": final.get("changes_summary", []),
                     "original_resume_text": resume_text,
-                    "optimized_at": datetime.now(timezone.utc).isoformat(),
-                }},
+                    "optimized_at": now_iso,
+                }
             )
             latency_ms = (time.time() - start_time) * 1000
             await record_ai_telemetry(
@@ -487,13 +743,18 @@ async def auto_optimize_stream_endpoint(payload: AutoOptimizeRequest, request: R
             if not final or "optimized_resume" not in final:
                 yield _sse({"type": "error", "error": "AI returned an invalid response"}); return
 
-            await db.analyses.update_one(
-                {"id": payload.analysis_id},
-                {"$set": {
+            now_iso = datetime.now(timezone.utc).isoformat()
+            await _update_analysis_record(
+                analysis_id=payload.analysis_id,
+                user_id=user_id,
+                updates={
                     "optimization": {**final, "auto_boosted": True},
+                    "optimized_resume": final.get("optimized_resume"),
+                    "predicted_ats_score": final.get("predicted_ats_score"),
+                    "changes_summary": final.get("changes_summary", []),
                     "original_resume_text": resume_text,
-                    "optimized_at": datetime.now(timezone.utc).isoformat(),
-                }},
+                    "optimized_at": now_iso,
+                }
             )
             latency_ms = (time.time() - start_time) * 1000
             await record_ai_telemetry(
@@ -544,9 +805,15 @@ async def cover_letter_stream_endpoint(payload: CoverLetterRequest, request: Req
             letter = (final or {}).get("cover_letter", "").strip()
             if not letter:
                 yield _sse({"type": "error", "error": "AI returned an empty cover letter"}); return
-            await db.analyses.update_one(
-                {"id": payload.analysis_id},
-                {"$set": {"cover_letter": letter, "cover_letter_at": datetime.now(timezone.utc).isoformat()}},
+            
+            now_iso = datetime.now(timezone.utc).isoformat()
+            await _update_analysis_record(
+                analysis_id=payload.analysis_id,
+                user_id=user_id,
+                updates={
+                    "cover_letter": letter,
+                    "cover_letter_at": now_iso,
+                }
             )
             latency_ms = (time.time() - start_time) * 1000
             await record_ai_telemetry(
@@ -564,7 +831,38 @@ async def cover_letter_stream_endpoint(payload: CoverLetterRequest, request: Req
 
 # ---------------- History ----------------
 @api.get("/history")
-async def history(user_id: str = Depends(get_current_user)):
+async def history(
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    try:
+        user_uuid = uuid.UUID(user_id)
+        stmt = (
+            select(Analysis)
+            .where(Analysis.user_id == user_uuid)
+            .order_by(Analysis.created_at.desc())
+            .limit(100)
+        )
+        res = await session.execute(stmt)
+        rows = res.scalars().all()
+        if rows:
+            items = []
+            for r in rows:
+                a = r.analysis or {}
+                items.append({
+                    "id": str(r.id),
+                    "job_title": r.job_title,
+                    "resume_filename": r.resume_filename,
+                    "ats_score": a.get("ats_score") or r.predicted_ats_score,
+                    "optimized": bool(r.optimized_resume),
+                    "has_cover_letter": bool(r.cover_letter),
+                    "model": r.model,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                })
+            return {"items": items}
+    except Exception as exc:
+        logging.warning(f"Error querying history from postgres: {exc}")
+
     rows = await db.analyses.find(
         {"user_id": user_id}, {"_id": 0, "job_description": 0}
     ).sort("created_at", -1).to_list(100)
@@ -578,24 +876,80 @@ async def history(user_id: str = Depends(get_current_user)):
             "ats_score": a.get("ats_score"),
             "optimized": bool(r.get("optimization")),
             "has_cover_letter": bool(r.get("cover_letter")),
+            "model": r.get("model"),
             "created_at": r.get("created_at"),
         })
     return {"items": items}
 
 
 @api.get("/history/{analysis_id}")
-async def history_detail(analysis_id: str, user_id: str = Depends(get_current_user)):
+async def history_detail(
+    analysis_id: str,
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    try:
+        stmt = select(Analysis).where(
+            Analysis.id == uuid.UUID(analysis_id),
+            Analysis.user_id == uuid.UUID(user_id),
+        )
+        res = await session.execute(stmt)
+        row = res.scalar_one_or_none()
+        if row:
+            return {
+                "id": str(row.id),
+                "user_id": str(row.user_id),
+                "resume_id": str(row.resume_id) if row.resume_id else None,
+                "resume_filename": row.resume_filename,
+                "job_title": row.job_title,
+                "job_description": row.job_description,
+                "analysis": row.analysis,
+                "model": row.model,
+                "optimization": {
+                    "optimized_resume": row.optimized_resume,
+                    "changes_summary": row.changes_summary,
+                    "predicted_ats_score": row.predicted_ats_score,
+                } if row.optimized_resume else None,
+                "cover_letter": row.cover_letter,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            }
+    except Exception as exc:
+        logging.warning(f"Error querying analysis detail from postgres: {exc}")
+
     row = await db.analyses.find_one({"id": analysis_id, "user_id": user_id}, {"_id": 0})
     if not row:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="Analysis not found")
     return row
 
 
 @api.delete("/history/{analysis_id}")
-async def history_delete(analysis_id: str, user_id: str = Depends(get_current_user)):
-    res = await db.analyses.delete_one({"id": analysis_id, "user_id": user_id})
-    if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Not found")
+async def history_delete(
+    analysis_id: str,
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    deleted = False
+    try:
+        stmt = select(Analysis).where(
+            Analysis.id == uuid.UUID(analysis_id),
+            Analysis.user_id == uuid.UUID(user_id),
+        )
+        res = await session.execute(stmt)
+        row = res.scalar_one_or_none()
+        if row:
+            await session.delete(row)
+            await session.commit()
+            deleted = True
+    except Exception as exc:
+        logging.warning(f"Error deleting analysis from postgres: {exc}")
+
+    res_mongo = await db.analyses.delete_one({"id": analysis_id, "user_id": user_id})
+    if res_mongo.deleted_count > 0:
+        deleted = True
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Analysis not found")
     return {"ok": True}
 
 
@@ -616,9 +970,22 @@ async def compare(payload: CompareRequest, user_id: str = Depends(get_current_us
     if len(payload.job_description.strip()) < 30:
         raise HTTPException(status_code=400, detail="Job description too short")
 
+    async def _fetch_resume(rid: str):
+        try:
+            from db import AsyncSessionLocal
+            async with AsyncSessionLocal() as session:
+                stmt = select(Resume).where(Resume.id == uuid.UUID(rid), Resume.user_id == uuid.UUID(user_id))
+                res = await session.execute(stmt)
+                r = res.scalar_one_or_none()
+                if r:
+                    return {"id": str(r.id), "filename": r.filename, "text": r.text}
+        except Exception:
+            pass
+        return await db.resumes.find_one({"id": rid, "user_id": user_id})
+
     # Fetch all resume docs concurrently
     resume_docs = await asyncio.gather(*[
-        db.resumes.find_one({"id": rid, "user_id": user_id}) for rid in payload.resume_ids
+        _fetch_resume(rid) for rid in payload.resume_ids
     ])
 
     sem = asyncio.Semaphore(5)  # cap concurrent LLM calls
@@ -796,7 +1163,43 @@ class ApplicationUpdate(BaseModel):
 
 
 @api.get("/applications")
-async def list_applications(user_id: str = Depends(get_current_user)):
+async def list_applications(
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    try:
+        stmt = (
+            select(Application)
+            .where(Application.user_id == uuid.UUID(user_id))
+            .order_by(Application.updated_at.desc())
+            .limit(200)
+        )
+        res = await session.execute(stmt)
+        rows = res.scalars().all()
+        if rows:
+            items = [
+                {
+                    "id": str(app.id),
+                    "user_id": str(app.user_id),
+                    "job_title": app.job_title,
+                    "company_name": app.company_name,
+                    "location": app.location,
+                    "status": app.status,
+                    "ats_score": app.ats_score,
+                    "job_description": app.job_description,
+                    "optimized_resume": app.optimized_resume,
+                    "cover_letter": app.cover_letter,
+                    "notes": app.notes,
+                    "resume_filename": app.resume_filename,
+                    "created_at": app.created_at.isoformat() if app.created_at else None,
+                    "updated_at": app.updated_at.isoformat() if app.updated_at else None,
+                }
+                for app in rows
+            ]
+            return {"items": items}
+    except Exception as exc:
+        logging.warning(f"Error querying applications from postgres: {exc}")
+
     rows = await db.applications.find(
         {"user_id": user_id}, {"_id": 0}
     ).sort("updated_at", -1).to_list(200)
@@ -804,11 +1207,40 @@ async def list_applications(user_id: str = Depends(get_current_user)):
 
 
 @api.post("/applications")
-async def create_application(payload: ApplicationCreate, user_id: str = Depends(get_current_user)):
+async def create_application(
+    payload: ApplicationCreate,
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
     if not payload.job_title or len(payload.job_title.strip()) < 2:
         raise HTTPException(status_code=400, detail="Job title is required")
     app_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
+
+    # 1. Save to PostgreSQL
+    try:
+        new_app = Application(
+            id=uuid.UUID(app_id),
+            user_id=uuid.UUID(user_id),
+            job_title=payload.job_title.strip(),
+            company_name=(payload.company_name or "Target Company").strip(),
+            location=(payload.location or "").strip(),
+            status=(payload.status or "applied").lower(),
+            ats_score=payload.ats_score,
+            job_description=payload.job_description or "",
+            optimized_resume=payload.optimized_resume or "",
+            cover_letter=payload.cover_letter or "",
+            notes=payload.notes or "",
+            resume_filename=payload.resume_filename or "",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(new_app)
+        await session.commit()
+    except Exception as exc:
+        logging.warning(f"Error creating application in postgres: {exc}")
+
+    # 2. Dual-write to Mongo
     doc = {
         "id": app_id,
         "user_id": user_id,
@@ -822,8 +1254,8 @@ async def create_application(payload: ApplicationCreate, user_id: str = Depends(
         "cover_letter": payload.cover_letter or "",
         "notes": payload.notes or "",
         "resume_filename": payload.resume_filename or "",
-        "created_at": now,
-        "updated_at": now,
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat(),
     }
     await db.applications.insert_one(doc)
     doc.pop("_id", None)
@@ -831,11 +1263,39 @@ async def create_application(payload: ApplicationCreate, user_id: str = Depends(
 
 
 @api.put("/applications/{app_id}")
-async def update_application(app_id: str, payload: ApplicationUpdate, user_id: str = Depends(get_current_user)):
-    existing = await db.applications.find_one({"id": app_id, "user_id": user_id})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Application not found")
+async def update_application(
+    app_id: str,
+    payload: ApplicationUpdate,
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    found = False
+    now = datetime.now(timezone.utc)
 
+    # 1. Update in PostgreSQL
+    try:
+        stmt = select(Application).where(
+            Application.id == uuid.UUID(app_id),
+            Application.user_id == uuid.UUID(user_id)
+        )
+        res = await session.execute(stmt)
+        app = res.scalar_one_or_none()
+        if app:
+            if payload.job_title is not None: app.job_title = payload.job_title.strip()
+            if payload.company_name is not None: app.company_name = payload.company_name.strip()
+            if payload.location is not None: app.location = payload.location.strip()
+            if payload.status is not None: app.status = payload.status.lower()
+            if payload.ats_score is not None: app.ats_score = payload.ats_score
+            if payload.notes is not None: app.notes = payload.notes
+            if payload.optimized_resume is not None: app.optimized_resume = payload.optimized_resume
+            if payload.cover_letter is not None: app.cover_letter = payload.cover_letter
+            app.updated_at = now
+            await session.commit()
+            found = True
+    except Exception as exc:
+        logging.warning(f"Error updating application in postgres: {exc}")
+
+    # 2. Update in Mongo
     updates = {}
     if payload.job_title is not None: updates["job_title"] = payload.job_title.strip()
     if payload.company_name is not None: updates["company_name"] = payload.company_name.strip()
@@ -845,18 +1305,53 @@ async def update_application(app_id: str, payload: ApplicationUpdate, user_id: s
     if payload.notes is not None: updates["notes"] = payload.notes
     if payload.optimized_resume is not None: updates["optimized_resume"] = payload.optimized_resume
     if payload.cover_letter is not None: updates["cover_letter"] = payload.cover_letter
+    updates["updated_at"] = now.isoformat()
 
-    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    mongo_res = await db.applications.update_one({"id": app_id, "user_id": user_id}, {"$set": updates})
+    if mongo_res.matched_count > 0:
+        found = True
 
-    await db.applications.update_one({"id": app_id, "user_id": user_id}, {"$set": updates})
+    if not found:
+        raise HTTPException(status_code=404, detail="Application not found")
+
     updated_doc = await db.applications.find_one({"id": app_id, "user_id": user_id}, {"_id": 0})
+    if not updated_doc and found:
+        return {
+            "id": app_id, "user_id": user_id,
+            "job_title": payload.job_title or "Position",
+            "company_name": payload.company_name or "Company",
+            "status": payload.status or "applied",
+            "updated_at": now.isoformat(),
+        }
     return updated_doc
 
 
 @api.delete("/applications/{app_id}")
-async def delete_application(app_id: str, user_id: str = Depends(get_current_user)):
-    res = await db.applications.delete_one({"id": app_id, "user_id": user_id})
-    if res.deleted_count == 0:
+async def delete_application(
+    app_id: str,
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    deleted = False
+    try:
+        stmt = select(Application).where(
+            Application.id == uuid.UUID(app_id),
+            Application.user_id == uuid.UUID(user_id)
+        )
+        res = await session.execute(stmt)
+        app = res.scalar_one_or_none()
+        if app:
+            await session.delete(app)
+            await session.commit()
+            deleted = True
+    except Exception as exc:
+        logging.warning(f"Error deleting application from postgres: {exc}")
+
+    mongo_res = await db.applications.delete_one({"id": app_id, "user_id": user_id})
+    if mongo_res.deleted_count > 0:
+        deleted = True
+
+    if not deleted:
         raise HTTPException(status_code=404, detail="Application not found")
     return {"ok": True}
 
