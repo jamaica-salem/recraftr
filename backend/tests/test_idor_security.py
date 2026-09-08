@@ -66,6 +66,39 @@ class TestResumeIDOR:
         r_del_a = requests.delete(f"{API}/resumes/{resume_a_id}", headers=user_a["headers"])
         assert r_del_a.status_code == 200
 
+    def test_signed_download_url_and_idor(self, user_a, user_b):
+        # 1. User A uploads a resume
+        pdf_bytes = make_sample_pdf("Confidential Resume for Alpha User\nSecret Projects Included")
+        files = {"file": ("alpha_secret_resume.pdf", pdf_bytes, "application/pdf")}
+        r_upload = requests.post(f"{API}/upload-resume", headers=user_a["headers"], files=files)
+        assert r_upload.status_code == 200
+        resume_id = r_upload.json()["resume_id"]
+
+        # 2. User A requests signed download URL -> must return 200 with valid signed URL
+        r_url_a = requests.get(f"{API}/resumes/{resume_id}/download-url", headers=user_a["headers"])
+        assert r_url_a.status_code == 200, f"Expected 200, got {r_url_a.status_code}: {r_url_a.text}"
+        data = r_url_a.json()
+        assert "download_url" in data
+        assert data["expires_in"] == 300
+        assert "supabase.co/storage/v1/object/sign/resumes" in data["download_url"]
+
+        # 3. Downloading the signed URL returns the exact uploaded file bytes
+        dl_resp = requests.get(data["download_url"])
+        assert dl_resp.status_code == 200
+        assert len(dl_resp.content) == len(pdf_bytes)
+
+        # 4. User B requests download URL for User A's resume -> must return 404 (IDOR blocked)
+        r_url_b = requests.get(f"{API}/resumes/{resume_id}/download-url", headers=user_b["headers"])
+        assert r_url_b.status_code == 404, f"Expected 404 for User B, got {r_url_b.status_code}"
+
+        # 5. Fake non-existent resume ID returns 404
+        fake_id = str(uuid.uuid4())
+        r_fake = requests.get(f"{API}/resumes/{fake_id}/download-url", headers=user_a["headers"])
+        assert r_fake.status_code == 404
+
+        # Cleanup
+        requests.delete(f"{API}/resumes/{resume_id}", headers=user_a["headers"])
+
 
 class TestApplicationIDOR:
     def test_user_b_cannot_access_or_modify_user_a_application(self, user_a, user_b):

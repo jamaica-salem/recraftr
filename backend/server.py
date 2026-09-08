@@ -317,6 +317,73 @@ async def delete_resume(
     return {"ok": True}
 
 
+@api.get("/resumes/{resume_id}/download-url")
+async def get_resume_download_url(
+    resume_id: str,
+    user_id: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    storage_path = None
+    filename = "resume.pdf"
+    found = False
+
+    # 1. Check PostgreSQL with strict ownership check
+    try:
+        r_uuid = uuid.UUID(resume_id)
+        u_uuid = uuid.UUID(user_id)
+        stmt = select(Resume).where(Resume.id == r_uuid, Resume.user_id == u_uuid)
+        res = await session.execute(stmt)
+        resume = res.scalar_one_or_none()
+        if resume:
+            found = True
+            storage_path = resume.storage_path
+            filename = resume.filename
+    except ValueError:
+        pass
+    except Exception as exc:
+        logging.warning(f"Error checking resume in postgres: {exc}")
+
+    # 2. Fallback to MongoDB
+    if not found:
+        mongo_resume = await db.resumes.find_one({"id": resume_id, "user_id": user_id})
+        if mongo_resume:
+            found = True
+            storage_path = mongo_resume.get("storage_path")
+            filename = mongo_resume.get("filename", filename)
+
+    if not found:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    if not storage_path:
+        raise HTTPException(
+            status_code=404,
+            detail="No original document file is stored for this resume version."
+        )
+
+    if not supabase_admin:
+        raise HTTPException(status_code=500, detail="Storage service is currently unavailable.")
+
+    try:
+        signed_res = supabase_admin.storage.from_("resumes").create_signed_url(
+            path=storage_path,
+            expires_in=300,  # 5 minutes
+        )
+        url = signed_res.get("signedUrl") or signed_res.get("signedURL")
+        if not url:
+            raise HTTPException(status_code=502, detail="Failed to generate signed download URL.")
+
+        return {
+            "download_url": url,
+            "filename": filename,
+            "expires_in": 300,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.error(f"Error creating signed URL for {storage_path}: {exc}")
+        raise HTTPException(status_code=502, detail=f"Storage error: {exc}")
+
+
 # ---------------- Non-streaming analyze/optimize (kept for compare) ----------------
 class AnalyzeRequest(BaseModel):
     resume_id: Optional[str] = None
