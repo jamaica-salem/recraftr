@@ -49,14 +49,14 @@ if create_client and SUPABASE_URL and (SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANO
 
 
 class UserRegister(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=6)
+    email: EmailStr = Field(max_length=255)
+    password: str = Field(min_length=6, max_length=128)
     name: str = Field(min_length=1, max_length=80)
 
 
 class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
+    email: EmailStr = Field(max_length=255)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class UserPublic(BaseModel):

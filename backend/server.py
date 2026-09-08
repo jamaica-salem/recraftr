@@ -8,13 +8,15 @@ from pathlib import Path
 from typing import Optional, List
 import io
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Request
 from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -30,6 +32,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from resume_parser import parse_resume, parse_resume_async
 from file_security import validate_upload_file, FileValidationError
 from ai_security import ai_rate_limiter, record_ai_telemetry
+from api_security import (
+    RequestSizeLimitMiddleware,
+    APIRateLimitMiddleware,
+    general_rate_limiter,
+    sanitize_error_detail,
+)
 from ai_service import (
     analyze_resume, optimize_resume,
     analyze_stream, optimize_stream, auto_optimize_stream, cover_letter_stream, rewrite_bullet,
@@ -43,8 +51,46 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ.get('DB_NAME', 'recraftr')]
 
-app = FastAPI(title="Recraftr")
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
+DEBUG = os.environ.get("DEBUG", "true").lower() == "true"
+IS_PRODUCTION = (ENVIRONMENT in ("production", "prod")) or (not DEBUG)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    client.close()
+
+
+app = FastAPI(
+    title="Recraftr API",
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
+    lifespan=lifespan,
+)
 api = APIRouter(prefix="/api")
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    clean_detail = sanitize_error_detail(str(exc.detail))
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": clean_detail},
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logging.getLogger("recraftr").exception(
+        f"Unhandled server error on {request.method} {request.url.path}: {exc}"
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal server error occurred. Please try again later."},
+    )
 
 
 # ---------------- Auth ----------------
@@ -248,16 +294,21 @@ async def upload_resume(
 
 @api.get("/resumes")
 async def list_resumes(
+    limit: int = 50,
+    offset: int = 0,
     user_id: str = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
+    safe_limit = min(max(1, limit), 100)
+    safe_offset = max(0, offset)
     try:
         user_uuid = uuid.UUID(user_id)
         stmt = (
             select(Resume)
             .where(Resume.user_id == user_uuid)
             .order_by(Resume.created_at.desc())
-            .limit(50)
+            .offset(safe_offset)
+            .limit(safe_limit)
         )
         res = await session.execute(stmt)
         rows = res.scalars().all()
@@ -272,15 +323,15 @@ async def list_resumes(
                 }
                 for r in rows
             ]
-            return {"items": items}
+            return {"items": items, "limit": safe_limit, "offset": safe_offset}
     except Exception as exc:
         logging.warning(f"Error reading resumes from postgres: {exc}")
 
     # Fallback to Mongo
     rows = await db.resumes.find(
         {"user_id": user_id}, {"_id": 0, "text": 0}
-    ).sort("created_at", -1).to_list(50)
-    return {"items": rows}
+    ).sort("created_at", -1).skip(safe_offset).to_list(safe_limit)
+    return {"items": rows, "limit": safe_limit, "offset": safe_offset}
 
 
 @api.delete("/resumes/{resume_id}")
@@ -386,11 +437,11 @@ async def get_resume_download_url(
 
 # ---------------- Non-streaming analyze/optimize (kept for compare) ----------------
 class AnalyzeRequest(BaseModel):
-    resume_id: Optional[str] = None
-    resume_text: Optional[str] = None
-    job_title: str
-    job_description: str
-    model: Optional[str] = DEFAULT_MODEL
+    resume_id: Optional[str] = Field(default=None, max_length=100)
+    resume_text: Optional[str] = Field(default=None, max_length=50000)
+    job_title: str = Field(min_length=1, max_length=150)
+    job_description: str = Field(min_length=10, max_length=25000)
+    model: Optional[str] = Field(default=DEFAULT_MODEL, max_length=50)
 
 
 async def _save_analysis_record(
@@ -577,7 +628,7 @@ async def analyze(
 
 
 class OptimizeRequest(BaseModel):
-    analysis_id: str
+    analysis_id: str = Field(min_length=1, max_length=100)
     aggressive: bool = False
 
 
@@ -773,8 +824,8 @@ async def optimize_stream_endpoint(payload: OptimizeRequest, request: Request, u
 
 
 class AutoOptimizeRequest(BaseModel):
-    analysis_id: str
-    target_score: Optional[int] = 90
+    analysis_id: str = Field(min_length=1, max_length=100)
+    target_score: Optional[int] = Field(default=90, ge=1, le=100)
 
 
 @api.post("/auto-optimize-stream")
@@ -808,14 +859,13 @@ async def auto_optimize_stream_endpoint(payload: AutoOptimizeRequest, request: R
                     provider = ev.get("provider", provider)
                     model_name = ev.get("model", model_name)
             if not final or "optimized_resume" not in final:
-                yield _sse({"type": "error", "error": "AI returned an invalid response"}); return
+                yield _sse({"type": "error", "error": "Optimization did not return expected format"}); return
 
             now_iso = datetime.now(timezone.utc).isoformat()
             await _update_analysis_record(
                 analysis_id=payload.analysis_id,
                 user_id=user_id,
                 updates={
-                    "optimization": {**final, "auto_boosted": True},
                     "optimized_resume": final.get("optimized_resume"),
                     "predicted_ats_score": final.get("predicted_ats_score"),
                     "changes_summary": final.get("changes_summary", []),
@@ -839,7 +889,7 @@ async def auto_optimize_stream_endpoint(payload: AutoOptimizeRequest, request: R
 
 # ---------------- Cover letter (streaming + PDF) ----------------
 class CoverLetterRequest(BaseModel):
-    analysis_id: str
+    analysis_id: str = Field(min_length=1, max_length=100)
 
 
 @api.post("/cover-letter-stream")
@@ -899,16 +949,21 @@ async def cover_letter_stream_endpoint(payload: CoverLetterRequest, request: Req
 # ---------------- History ----------------
 @api.get("/history")
 async def history(
+    limit: int = 50,
+    offset: int = 0,
     user_id: str = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
+    safe_limit = min(max(1, limit), 100)
+    safe_offset = max(0, offset)
     try:
         user_uuid = uuid.UUID(user_id)
         stmt = (
             select(Analysis)
             .where(Analysis.user_id == user_uuid)
             .order_by(Analysis.created_at.desc())
-            .limit(100)
+            .offset(safe_offset)
+            .limit(safe_limit)
         )
         res = await session.execute(stmt)
         rows = res.scalars().all()
@@ -926,13 +981,13 @@ async def history(
                     "model": r.model,
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 })
-            return {"items": items}
+            return {"items": items, "limit": safe_limit, "offset": safe_offset}
     except Exception as exc:
         logging.warning(f"Error querying history from postgres: {exc}")
 
     rows = await db.analyses.find(
         {"user_id": user_id}, {"_id": 0, "job_description": 0}
-    ).sort("created_at", -1).to_list(100)
+    ).sort("created_at", -1).skip(safe_offset).to_list(safe_limit)
     items = []
     for r in rows:
         a = r.get("analysis") or {}
@@ -946,7 +1001,7 @@ async def history(
             "model": r.get("model"),
             "created_at": r.get("created_at"),
         })
-    return {"items": items}
+    return {"items": items, "limit": safe_limit, "offset": safe_offset}
 
 
 @api.get("/history/{analysis_id}")
@@ -1022,10 +1077,10 @@ async def history_delete(
 
 # ---------------- Compare (multi-resume vs one JD) ----------------
 class CompareRequest(BaseModel):
-    resume_ids: List[str]
-    job_title: str
-    job_description: str
-    model: Optional[str] = DEFAULT_MODEL
+    resume_ids: List[str] = Field(min_length=1, max_length=10)
+    job_title: str = Field(min_length=1, max_length=150)
+    job_description: str = Field(min_length=10, max_length=25000)
+    model: Optional[str] = Field(default=DEFAULT_MODEL, max_length=50)
 
 
 @api.post("/compare")
@@ -1087,8 +1142,8 @@ async def compare(payload: CompareRequest, user_id: str = Depends(get_current_us
 
 # ---------------- JD scrape ----------------
 class ScrapeJdRequest(BaseModel):
-    url: str
-    model: Optional[str] = DEFAULT_MODEL
+    url: str = Field(min_length=4, max_length=2048)
+    model: Optional[str] = Field(default=DEFAULT_MODEL, max_length=50)
 
 
 @api.post("/scrape-jd")
@@ -1106,11 +1161,11 @@ async def scrape_jd_endpoint(payload: ScrapeJdRequest, user_id: str = Depends(ge
 
 # ---------------- PDF & HTML downloads ----------------
 class PdfRequest(BaseModel):
-    resume_text: str
-    filename: Optional[str] = "resume-optimized"
-    template: Optional[str] = "classic"
+    resume_text: str = Field(min_length=10, max_length=60000)
+    filename: Optional[str] = Field(default="resume-optimized", max_length=120)
+    template: Optional[str] = Field(default="classic", max_length=50)
     custom_styles: Optional[dict] = None
-    format: Optional[str] = "pdf"
+    format: Optional[str] = Field(default="pdf", max_length=10)
 
 
 @api.post("/download-pdf")
@@ -1134,13 +1189,13 @@ async def download_pdf(payload: PdfRequest, user_id: str = Depends(get_current_u
 
 
 class CoverLetterPdfRequest(BaseModel):
-    cover_letter: str
-    candidate_name: Optional[str] = ""
-    job_title: Optional[str] = ""
-    filename: Optional[str] = "cover-letter"
-    template: Optional[str] = "classic"
+    cover_letter: str = Field(min_length=10, max_length=30000)
+    candidate_name: Optional[str] = Field(default="", max_length=120)
+    job_title: Optional[str] = Field(default="", max_length=150)
+    filename: Optional[str] = Field(default="cover-letter", max_length=120)
+    template: Optional[str] = Field(default="classic", max_length=50)
     custom_styles: Optional[dict] = None
-    format: Optional[str] = "pdf"
+    format: Optional[str] = Field(default="pdf", max_length=10)
 
 
 @api.post("/cover-letter-pdf")
@@ -1174,10 +1229,10 @@ async def cover_letter_pdf(payload: CoverLetterPdfRequest, user_id: str = Depend
 
 # ---------------- Bullet Rewrite Endpoint ----------------
 class RewriteBulletRequest(BaseModel):
-    bullet_text: str
-    instruction: str
-    job_description: Optional[str] = ""
-    model: Optional[str] = DEFAULT_MODEL
+    bullet_text: str = Field(min_length=5, max_length=1500)
+    instruction: str = Field(min_length=2, max_length=500)
+    job_description: Optional[str] = Field(default="", max_length=15000)
+    model: Optional[str] = Field(default=DEFAULT_MODEL, max_length=50)
 
 
 @api.post("/rewrite-bullet")
@@ -1206,40 +1261,45 @@ async def rewrite_bullet_endpoint(payload: RewriteBulletRequest, request: Reques
 
 # ---------------- Job Tracker / Applications ----------------
 class ApplicationCreate(BaseModel):
-    job_title: str
-    company_name: Optional[str] = "Target Company"
-    location: Optional[str] = ""
-    status: Optional[str] = "applied"
-    ats_score: Optional[int] = None
-    job_description: Optional[str] = ""
-    optimized_resume: Optional[str] = ""
-    cover_letter: Optional[str] = ""
-    notes: Optional[str] = ""
-    resume_filename: Optional[str] = ""
+    job_title: str = Field(min_length=1, max_length=150)
+    company_name: Optional[str] = Field(default="Target Company", max_length=150)
+    location: Optional[str] = Field(default="", max_length=150)
+    status: Optional[str] = Field(default="applied", max_length=50)
+    ats_score: Optional[int] = Field(default=None, ge=0, le=100)
+    job_description: Optional[str] = Field(default="", max_length=25000)
+    optimized_resume: Optional[str] = Field(default="", max_length=60000)
+    cover_letter: Optional[str] = Field(default="", max_length=30000)
+    notes: Optional[str] = Field(default="", max_length=5000)
+    resume_filename: Optional[str] = Field(default="", max_length=200)
 
 
 class ApplicationUpdate(BaseModel):
-    job_title: Optional[str] = None
-    company_name: Optional[str] = None
-    location: Optional[str] = None
-    status: Optional[str] = None
-    ats_score: Optional[int] = None
-    notes: Optional[str] = None
-    optimized_resume: Optional[str] = None
-    cover_letter: Optional[str] = None
+    job_title: Optional[str] = Field(default=None, max_length=150)
+    company_name: Optional[str] = Field(default=None, max_length=150)
+    location: Optional[str] = Field(default=None, max_length=150)
+    status: Optional[str] = Field(default=None, max_length=50)
+    ats_score: Optional[int] = Field(default=None, ge=0, le=100)
+    notes: Optional[str] = Field(default=None, max_length=5000)
+    optimized_resume: Optional[str] = Field(default=None, max_length=60000)
+    cover_letter: Optional[str] = Field(default=None, max_length=30000)
 
 
 @api.get("/applications")
 async def list_applications(
+    limit: int = 50,
+    offset: int = 0,
     user_id: str = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
+    safe_limit = min(max(1, limit), 100)
+    safe_offset = max(0, offset)
     try:
         stmt = (
             select(Application)
             .where(Application.user_id == uuid.UUID(user_id))
             .order_by(Application.updated_at.desc())
-            .limit(200)
+            .offset(safe_offset)
+            .limit(safe_limit)
         )
         res = await session.execute(stmt)
         rows = res.scalars().all()
@@ -1263,14 +1323,14 @@ async def list_applications(
                 }
                 for app in rows
             ]
-            return {"items": items}
+            return {"items": items, "limit": safe_limit, "offset": safe_offset}
     except Exception as exc:
         logging.warning(f"Error querying applications from postgres: {exc}")
 
     rows = await db.applications.find(
         {"user_id": user_id}, {"_id": 0}
-    ).sort("updated_at", -1).to_list(200)
-    return {"items": rows}
+    ).sort("updated_at", -1).skip(safe_offset).to_list(safe_limit)
+    return {"items": rows, "limit": safe_limit, "offset": safe_offset}
 
 
 @api.post("/applications")
@@ -1424,13 +1484,16 @@ async def delete_application(
 
 
 # ---------------- Health ----------------
+@app.get("/health")
+@api.get("/health")
 @api.get("/")
-async def root():
-    return {"service": "Recraftr", "status": "ok"}
+async def health():
+    return {"service": "Recraftr", "status": "ok", "environment": ENVIRONMENT}
 
 
 app.include_router(api)
 
+# Security & CORS Middlewares (outermost executes first)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -1438,11 +1501,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestSizeLimitMiddleware)
+app.add_middleware(APIRateLimitMiddleware)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("recraftr")
-
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
