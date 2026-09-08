@@ -1,0 +1,14 @@
+/var/log/recraftr/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    create 0640 recraftr recraftr
+    sharedscripts
+    postrotate
+        # Signal systemd to reload logging descriptors if needed
+        systemctl kill -s HUP --kill-who=main recraftr-backend.service > /dev/null 2>&1 || true
+    endscript
+}

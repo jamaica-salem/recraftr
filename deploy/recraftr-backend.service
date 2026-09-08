@@ -1,0 +1,46 @@
+[Unit]
+Description=Recraftr FastAPI Backend Application
+After=network.target remote-fs.target
+Documentation=https://github.com/jamaica-salem/recraftr
+
+[Service]
+Type=simple
+User=recraftr
+Group=recraftr
+WorkingDirectory=/var/www/recraftr/backend
+Environment="PATH=/var/www/recraftr/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+EnvironmentFile=/var/www/recraftr/backend/.env
+
+# Run Uvicorn with multiple workers behind Nginx reverse proxy
+# --workers: standard formula 2 x (vCPUs) + 1 (configured here for 4 workers)
+# --proxy-headers and --forwarded-allow-ips: trust Nginx loopback reverse proxy headers
+# --timeout-keep-alive 65: keepalive slightly longer than Nginx keepalive (65s)
+# --graceful-timeout 30: allow in-flight AI and database requests up to 30 seconds to conclude before SIGKILL
+ExecStart=/var/www/recraftr/backend/.venv/bin/uvicorn server:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 4 \
+    --proxy-headers \
+    --forwarded-allow-ips='127.0.0.1' \
+    --timeout-keep-alive 65 \
+    --timeout-graceful-shutdown 30
+
+# Process Management and Recovery
+Restart=always
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+LimitNOFILE=65535
+
+# Logging
+StandardOutput=append:/var/log/recraftr/backend.log
+StandardError=append:/var/log/recraftr/backend_err.log
+
+# Linux Security Hardening for System Services
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

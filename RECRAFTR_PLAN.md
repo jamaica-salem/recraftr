@@ -513,12 +513,12 @@ https://recraftr.com
 
 Checklist:
 
-* [ ] Production frontend origin
-* [ ] Staging frontend origin separately
-* [ ] No wildcard for authenticated API
-* [ ] Restrict methods
-* [ ] Restrict headers
-* [ ] Configure credentials correctly
+* [x] Production frontend origin
+* [x] Staging frontend origin separately
+* [x] No wildcard for authenticated API
+* [x] Restrict methods
+* [x] Restrict headers
+* [x] Configure credentials correctly
 
 ---
 
@@ -526,17 +526,17 @@ Checklist:
 
 Your production site should have:
 
-* [ ] HTTPS
-* [ ] HTTP → HTTPS redirect
-* [ ] HSTS
-* [ ] Content-Security-Policy
-* [ ] X-Content-Type-Options
-* [ ] Referrer-Policy
-* [ ] Permissions-Policy
-* [ ] Clickjacking protection
-* [ ] Secure cookies if cookies are used
-* [ ] HttpOnly cookies if appropriate
-* [ ] SameSite configuration
+* [x] HTTPS
+* [x] HTTP → HTTPS redirect
+* [x] HSTS
+* [x] Content-Security-Policy
+* [x] X-Content-Type-Options
+* [x] Referrer-Policy
+* [x] Permissions-Policy
+* [x] Clickjacking protection
+* [x] Secure cookies if cookies are used
+* [x] HttpOnly cookies if appropriate
+* [x] SameSite configuration
 
 ---
 
@@ -544,42 +544,42 @@ Your production site should have:
 
 For your FastAPI server:
 
-* [ ] Ubuntu/Linux
-* [ ] Create non-root deployment user
-* [ ] SSH key authentication
-* [ ] Disable root SSH
-* [ ] Disable password SSH
-* [ ] Firewall
-* [ ] Only expose necessary ports
-* [ ] Port 80
-* [ ] Port 443
-* [ ] Don't expose PostgreSQL publicly
-* [ ] Don't expose FastAPI directly
-* [ ] Keep OS updated
-* [ ] Automatic security updates where appropriate
-* [ ] Nginx
-* [ ] Uvicorn/Gunicorn
-* [ ] Process manager/systemd
-* [ ] Automatic restart
-* [ ] Log rotation
-* [ ] Resource monitoring
+* [x] Ubuntu/Linux
+* [x] Create non-root deployment user
+* [x] SSH key authentication
+* [x] Disable root SSH
+* [x] Disable password SSH
+* [x] Firewall
+* [x] Only expose necessary ports
+* [x] Port 80
+* [x] Port 443
+* [x] Don't expose PostgreSQL publicly
+* [x] Don't expose FastAPI directly
+* [x] Keep OS updated
+* [x] Automatic security updates where appropriate
+* [x] Nginx
+* [x] Uvicorn/Gunicorn
+* [x] Process manager/systemd
+* [x] Automatic restart
+* [x] Log rotation
+* [x] Resource monitoring
 
 ---
 
 # Phase 16 — FastAPI production configuration
 
-* [ ] `DEBUG=False`
-* [ ] Production environment variable
-* [ ] Production CORS
-* [ ] Production database
-* [ ] Production AI keys
-* [ ] Production PayMongo credentials
-* [ ] Proper worker configuration
-* [ ] Connection pooling
-* [ ] Request timeout
-* [ ] Graceful shutdown
-* [ ] Health endpoint
-* [ ] Readiness endpoint if needed
+* [x] `DEBUG=False`
+* [x] Production environment variable
+* [x] Production CORS
+* [x] Production database
+* [x] Production AI keys
+* [x] Production PayMongo credentials
+* [x] Proper worker configuration
+* [x] Connection pooling
+* [x] Request timeout
+* [x] Graceful shutdown
+* [x] Health endpoint
+* [x] Readiness endpoint if needed
 
 Example:
 

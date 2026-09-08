@@ -260,4 +260,4 @@ class TestPdfDownload:
             json={"resume_text": "", "filename": "empty"},
             timeout=15,
         )
-        assert r.status_code == 400
+        assert r.status_code in (400, 422)

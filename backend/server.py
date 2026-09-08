@@ -26,8 +26,8 @@ from auth import (
     hash_password, verify_password, create_token, get_current_user, new_user_doc,
     supabase_admin,
 )
-from db import get_db, Profile, Resume, Analysis, Application, Purchase, CreditTransaction
-from sqlalchemy import select
+from db import get_db, Profile, Resume, Analysis, Application, Purchase, CreditTransaction, engine
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from resume_parser import parse_resume, parse_resume_async
 from file_security import validate_upload_file, FileValidationError
@@ -1020,11 +1020,18 @@ async def history_detail(
         res = await session.execute(stmt)
         row = res.scalar_one_or_none()
         if row:
+            original_resume_text = None
+            if row.resume_id:
+                r_stmt = select(Resume.text).where(Resume.id == row.resume_id)
+                r_res = await session.execute(r_stmt)
+                original_resume_text = r_res.scalar_one_or_none()
+
             return {
                 "id": str(row.id),
                 "user_id": str(row.user_id),
                 "resume_id": str(row.resume_id) if row.resume_id else None,
                 "resume_filename": row.resume_filename,
+                "original_resume_text": original_resume_text,
                 "job_title": row.job_title,
                 "job_description": row.job_description,
                 "analysis": row.analysis,
@@ -1485,12 +1492,40 @@ async def delete_application(
     return {"ok": True}
 
 
-# ---------------- Health ----------------
+# ---------------- Health & Readiness Probes ----------------
 @app.get("/health")
 @api.get("/health")
 @api.get("/")
 async def health():
     return {"service": "Recraftr", "status": "ok", "environment": ENVIRONMENT}
+
+
+@app.get("/readiness")
+@api.get("/readiness")
+async def readiness():
+    """Readiness probe checking database connectivity for load balancers and orchestrators."""
+    status_details = {
+        "status": "ready",
+        "service": "Recraftr",
+        "environment": ENVIRONMENT,
+        "database": "connected",
+    }
+
+    postgres_ok = False
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        postgres_ok = True
+    except Exception as e:
+        logger.error(f"PostgreSQL readiness probe failed: {e}")
+        status_details["database_error"] = str(e) if not IS_PRODUCTION else "Database connection failed"
+
+    if not postgres_ok:
+        status_details["status"] = "not_ready"
+        status_details["database"] = "disconnected"
+        return JSONResponse(status_code=503, content=status_details)
+
+    return status_details
 
 
 app.include_router(api)
