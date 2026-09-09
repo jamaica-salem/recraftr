@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import io
 import time
 from contextlib import asynccontextmanager
@@ -214,6 +214,97 @@ async def get_user_credits(user_id: str, session: AsyncSession) -> int:
         return tx.balance_after if tx else 0
     except Exception:
         return 0
+
+
+_user_credit_locks: Dict[str, asyncio.Lock] = {}
+
+
+def get_user_credit_lock(user_id: str) -> asyncio.Lock:
+    if user_id not in _user_credit_locks:
+        _user_credit_locks[user_id] = asyncio.Lock()
+    return _user_credit_locks[user_id]
+
+
+async def deduct_user_credit(
+    user_id: str,
+    action_type: str,
+    session: AsyncSession,
+    metadata_json: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, int, str]:
+    """
+    Atomically deducts 1 credit from the user's account balance with pessimistic locking.
+    Prevents negative balances and guards against concurrent race conditions.
+    Returns (success: bool, new_balance: int, message: str).
+    """
+    async with get_user_credit_lock(user_id):
+        try:
+            user_uuid = safe_uuid(user_id)
+            await ensure_profile_exists(user_id, session)
+
+            # Lock the user's credit transactions with FOR UPDATE to prevent race conditions
+            stmt = (
+                select(CreditTransaction)
+                .where(CreditTransaction.user_id == user_uuid)
+                .order_by(CreditTransaction.created_at.desc())
+                .limit(1)
+                .with_for_update()
+            )
+            res = await session.execute(stmt)
+            latest_tx = res.scalar_one_or_none()
+
+            current_balance = latest_tx.balance_after if latest_tx else 0
+
+            if current_balance <= 0:
+                return False, current_balance, "Insufficient AI credits (0 remaining). Please top up your account to continue."
+
+            new_balance = current_balance - 1
+            tx = CreditTransaction(
+                id=uuid.uuid4(),
+                user_id=user_uuid,
+                amount=-1,
+                action_type=action_type,
+                balance_after=new_balance,
+                metadata_json=metadata_json or {},
+            )
+            session.add(tx)
+            await session.commit()
+            return True, new_balance, "Credit deducted successfully."
+        except Exception as exc:
+            await session.rollback()
+            logging.error(f"Error deducting credit for user {user_id}: {exc}")
+            return False, 0, f"Database transaction error: {exc}"
+
+
+
+async def refund_user_credit(
+    user_id: str,
+    action_type: str,
+    session: AsyncSession,
+    reason: str = "failed_ai_request",
+) -> Tuple[bool, int]:
+    """
+    Refunds 1 credit to user account if an AI operation failed mid-execution.
+    """
+    try:
+        user_uuid = safe_uuid(user_id)
+        current_balance = await get_user_credits(user_id, session)
+        new_balance = current_balance + 1
+        tx = CreditTransaction(
+            id=uuid.uuid4(),
+            user_id=user_uuid,
+            amount=1,
+            action_type=f"refund_{action_type}",
+            balance_after=new_balance,
+            metadata_json={"reason": reason},
+        )
+        session.add(tx)
+        await session.commit()
+        return True, new_balance
+    except Exception as exc:
+        await session.rollback()
+        logging.error(f"Error refunding credit for user {user_id}: {exc}")
+        return False, 0
+
 
 
 @api.get("/auth/me")

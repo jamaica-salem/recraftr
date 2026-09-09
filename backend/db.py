@@ -9,11 +9,14 @@ from typing import AsyncGenerator, Optional, Dict, Any, List
 import uuid
 
 from sqlalchemy import (
-    Column, String, Text, Integer, Numeric, DateTime, ForeignKey, Index, func
+    Column, String, Text, Integer, Numeric, DateTime, ForeignKey, Index, func, JSON, UUID as GenericUUID
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base, relationship
+
+JSONType = JSONB().with_variant(JSON(), "sqlite")
+UUIDType = PG_UUID(as_uuid=True).with_variant(GenericUUID(as_uuid=True), "sqlite")
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
@@ -59,7 +62,7 @@ Base = declarative_base()
 class Profile(Base):
     __tablename__ = "profiles"
 
-    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUIDType, primary_key=True, default=uuid.uuid4)
     email = Column(String, unique=True, nullable=False, index=True)
     name = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -75,8 +78,8 @@ class Profile(Base):
 class Resume(Base):
     __tablename__ = "resumes"
 
-    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(PG_UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(UUIDType, primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUIDType, ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
     filename = Column(String, nullable=False)
     text = Column(Text, nullable=False)
     storage_path = Column(String, nullable=True)
@@ -90,17 +93,17 @@ class Resume(Base):
 class Analysis(Base):
     __tablename__ = "analyses"
 
-    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(PG_UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
-    resume_id = Column(PG_UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True, index=True)
+    id = Column(UUIDType, primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUIDType, ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    resume_id = Column(UUIDType, ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True, index=True)
     resume_filename = Column(String, nullable=True)
     job_title = Column(String, nullable=False)
     job_description = Column(Text, nullable=False)
-    analysis = Column(JSONB, nullable=True)
+    analysis = Column(JSONType, nullable=True)
     model = Column(String, default="gemini-3.5-flash")
     optimized_resume = Column(Text, nullable=True)
     predicted_ats_score = Column(Integer, nullable=True)
-    changes_summary = Column(JSONB, default=list)
+    changes_summary = Column(JSONType, default=list)
     cover_letter = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
@@ -112,8 +115,8 @@ class Analysis(Base):
 class Application(Base):
     __tablename__ = "applications"
 
-    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(PG_UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(UUIDType, primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUIDType, ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
     job_title = Column(String, nullable=False)
     company_name = Column(String, default="Target Company", nullable=False)
     location = Column(String, default="", nullable=True)
@@ -133,8 +136,8 @@ class Application(Base):
 class Purchase(Base):
     __tablename__ = "purchases"
 
-    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(PG_UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(UUIDType, primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUIDType, ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
     paymongo_payment_id = Column(String, unique=True, nullable=True, index=True)
     amount = Column(Numeric(10, 2), nullable=False)
     currency = Column(String, default="PHP", nullable=False)
@@ -149,12 +152,12 @@ class Purchase(Base):
 class CreditTransaction(Base):
     __tablename__ = "credit_transactions"
 
-    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(PG_UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(UUIDType, primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUIDType, ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
     amount = Column(Integer, nullable=False)
     action_type = Column(String, nullable=False)
     balance_after = Column(Integer, nullable=False)
-    metadata_json = Column("metadata", JSONB, default=dict)
+    metadata_json = Column("metadata", JSONType, default=dict)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     profile = relationship("Profile", back_populates="credit_transactions")
