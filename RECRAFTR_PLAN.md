@@ -672,17 +672,17 @@ User balance
 
 Checklist:
 
-* [ ] Server-side balance
-* [ ] Credit transaction table
-* [ ] Purchase → credit mapping
-* [ ] Atomic credit deduction
-* [ ] Atomic credit addition
-* [ ] Duplicate webhook protection
-* [ ] Refund handling
-* [ ] Failed AI request handling
-* [ ] Concurrent request protection
-* [ ] Credit history
-* [ ] Prevent negative balance
+* [x] Server-side balance (`get_user_credits` ledger query)
+* [x] Credit transaction table (`credit_transactions` table matching schema.sql)
+* [x] Purchase → credit mapping (`purchases` table mapped to `credit_transactions`)
+* [x] Atomic credit deduction (`deduct_user_credit` with dual-layer locking)
+* [x] Atomic credit addition (`CreditTransaction` addition on webhook verification)
+* [x] Duplicate webhook protection (Idempotency checks on `paymongo_payment_id`)
+* [x] Refund handling (`refund_user_credit` logs negative ledger adjustment)
+* [x] Failed AI request handling (Automated credit refund on stream/API failure)
+* [x] Concurrent request protection (Dual-layer locking: in-memory `asyncio.Lock` + PostgreSQL `SELECT FOR UPDATE`)
+* [x] Credit history (`/api/payments/history` endpoint and ledger tracking)
+* [x] Prevent negative balance (Strict balance check in `deduct_user_credit` prevents deduction when balance <= 0)
 
 Critical test:
 
@@ -694,7 +694,7 @@ Request A ──┐
 Request B ──┘
 
 Result:
-Only ONE succeeds.
+Only ONE succeeds. (Passed via automated test_concurrent_credit_deduction_protection)
 ```
 
 ---
