@@ -1866,11 +1866,7 @@ async def paymongo_webhook(
         raise HTTPException(status_code=400, detail="Malformed JSON payload")
 
     data = event.get("data", {})
-    event_type = data.get("attributes", {}).get("type")
-
-    # We listen for checkout_session.payment.paid
-    if event_type != "checkout_session.payment.paid":
-        return {"status": "ignored", "event_type": event_type}
+    event_type = data.get("attributes", {}).get("type", "")
 
     event_data = data.get("attributes", {}).get("data", {})
     attributes = event_data.get("attributes", {})
@@ -1878,6 +1874,78 @@ async def paymongo_webhook(
     user_id_str = metadata.get("user_id")
     package_id = metadata.get("package_id")
     meta_currency = metadata.get("currency", "PHP")
+
+    # Extract payment ID
+    payments = attributes.get("payments", [])
+    payment_id = payments[0].get("id") if payments else attributes.get("payment_intent_id") or event_data.get("id") or data.get("id")
+
+    # Handle payment failure events
+    if event_type in ("checkout_session.payment.failed", "payment.failed"):
+        logging.info(f"PayMongo payment failed for event {event_type}, payment_id={payment_id}")
+        if event_data.get("id"):
+            try:
+                purch_stmt = select(Purchase).where(Purchase.paymongo_payment_id == event_data.get("id"))
+                p_res = await session.execute(purch_stmt)
+                purchase = p_res.scalar_one_or_none()
+                if purchase:
+                    purchase.status = "failed"
+                    await session.commit()
+            except Exception as exc:
+                logging.warning(f"Error marking purchase failed: {exc}")
+        return {"status": "failed_recorded", "event_type": event_type}
+
+    # Handle refund events
+    if event_type in ("payment.refunded", "refund.created"):
+        logging.info(f"PayMongo payment refund received for payment_id={payment_id}")
+        if user_id_str and package_id:
+            try:
+                user_uuid = safe_uuid(user_id_str)
+                pkg = get_package(package_id, currency=meta_currency)
+                credits_to_refund = pkg["credits"] if pkg else 0
+
+                # Idempotency check for refund
+                stmt = select(Purchase).where(
+                    (Purchase.paymongo_payment_id == payment_id) & (Purchase.status == "refunded")
+                )
+                res = await session.execute(stmt)
+                if res.scalar_one_or_none():
+                    return {"status": "already_refunded"}
+
+                current_balance = await get_user_credits(user_id_str, session)
+                new_balance = max(0, current_balance - credits_to_refund)
+
+                credit_tx = CreditTransaction(
+                    id=uuid.uuid4(),
+                    user_id=user_uuid,
+                    amount=-credits_to_refund,
+                    action_type="refund",
+                    balance_after=new_balance,
+                    metadata_json={
+                        "package_id": package_id,
+                        "paymongo_payment_id": payment_id,
+                        "refunded_credits": credits_to_refund,
+                    },
+                )
+                session.add(credit_tx)
+
+                purch_stmt = select(Purchase).where(Purchase.paymongo_payment_id == payment_id)
+                p_res = await session.execute(purch_stmt)
+                purchase = p_res.scalar_one_or_none()
+                if purchase:
+                    purchase.status = "refunded"
+
+                await session.commit()
+                logging.info(f"Successfully processed refund of {credits_to_refund} credits for user {user_id_str}")
+                return {"status": "refund_processed", "refunded_credits": credits_to_refund}
+            except Exception as exc:
+                await session.rollback()
+                logging.error(f"Error processing refund webhook: {exc}")
+                raise HTTPException(status_code=500, detail="Database error processing refund")
+        return {"status": "refund_ignored_no_metadata"}
+
+    # We listen primarily for checkout_session.payment.paid or payment.paid
+    if event_type not in ("checkout_session.payment.paid", "payment.paid"):
+        return {"status": "ignored", "event_type": event_type}
 
     if not user_id_str or not package_id:
         logging.warning(f"Webhook missing user_id or package_id in metadata: {metadata}")
@@ -1887,10 +1955,6 @@ async def paymongo_webhook(
     if not pkg:
         logging.warning(f"Webhook referenced unknown package: {package_id}")
         return {"status": "unknown_package"}
-
-    # Extract payment ID
-    payments = attributes.get("payments", [])
-    payment_id = payments[0].get("id") if payments else attributes.get("payment_intent_id") or event_data.get("id")
 
     # Idempotency Check: verify this payment has not already been credited
     try:

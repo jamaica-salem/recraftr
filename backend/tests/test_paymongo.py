@@ -153,3 +153,44 @@ def test_webhook_signature_verification():
     old_sig = hmac.new(secret.encode("utf-8"), old_signed, hashlib.sha256).hexdigest()
     old_header = f"t={old_timestamp},te={old_sig}"
     assert verify_webhook_signature(payload, old_header, webhook_secret=secret, tolerance_seconds=300) is False
+
+
+@pytest.mark.anyio
+async def test_mock_checkout_session_creation():
+    """Verify PayMongo checkout session generation and URL formatting."""
+    from paymongo_service import create_checkout_session
+
+    res = await create_checkout_session(
+        user_id="user_test_123",
+        user_email="test@example.com",
+        user_name="Test User",
+        package_id="topup_10",
+        success_url="http://localhost:3001/checkout/success?session_id={CHECKOUT_SESSION_ID}",
+        cancel_url="http://localhost:3001/pricing?status=cancelled",
+        currency="PHP",
+    )
+
+    assert res is not None
+    assert "checkout_session_id" in res
+    assert "checkout_url" in res
+    assert res["credits"] == 10
+    assert res["currency"] == "PHP"
+    assert res["amount"] == 69.00
+    assert res["is_mock"] is True
+
+
+@pytest.mark.anyio
+async def test_invalid_package_checkout():
+    """Verify invalid package requests are safely rejected."""
+    from paymongo_service import create_checkout_session
+
+    with pytest.raises(ValueError, match="Invalid package selected"):
+        await create_checkout_session(
+            user_id="user_test_123",
+            user_email="test@example.com",
+            user_name="Test User",
+            package_id="non_existent_pkg_id",
+            success_url="http://localhost:3001/success",
+            cancel_url="http://localhost:3001/cancel",
+        )
+
