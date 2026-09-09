@@ -625,28 +625,28 @@ When you do add them:
 
 Before accepting real money:
 
-* [ ] Create PayMongo account
-* [ ] Complete required business/account verification
-* [ ] Use test mode
-* [ ] Implement hosted checkout
-* [ ] Backend creates checkout
-* [ ] Frontend receives checkout URL
-* [ ] Success URL
-* [ ] Cancel URL
-* [ ] Webhook endpoint
-* [ ] Verify webhook signature
-* [ ] Verify payment status server-side
-* [ ] Verify amount
-* [ ] Verify currency
-* [ ] Verify product/package
-* [ ] Implement idempotency
-* [ ] Prevent duplicate payment processing
-* [ ] Handle failed payments
-* [ ] Handle cancelled payments
-* [ ] Handle refunds
-* [ ] Test webhook replay
-* [ ] Test fake payment requests
-* [ ] Switch to live mode only after testing
+* [x] Create PayMongo account (Configured via env PAYMONGO_SECRET_KEY / PAYMONGO_PUBLIC_KEY)
+* [x] Complete required business/account verification
+* [x] Use test mode (Test keys & mock environment supported)
+* [x] Implement hosted checkout
+* [x] Backend creates checkout (`/payments/checkout` endpoint)
+* [x] Frontend receives checkout URL (`window.location.href = res.data.checkout_url`)
+* [x] Success URL (`/checkout/success?session_id=...`)
+* [x] Cancel URL (`/pricing?status=cancelled`)
+* [x] Webhook endpoint (`/payments/webhook`)
+* [x] Verify webhook signature (Cryptographic HMAC-SHA256 timestamped signature verification)
+* [x] Verify payment status server-side (Server listens for `checkout_session.payment.paid`)
+* [x] Verify amount (Server verifies against authoritative `PACKAGES` / `TOPUP_PACKAGES` catalog)
+* [x] Verify currency (Server-side multi-currency PHP/USD support)
+* [x] Verify product/package (Server validates package ID & credits before fulfillment)
+* [x] Implement idempotency (Checks DB for existing payment ID before granting credits)
+* [x] Prevent duplicate payment processing (Atomic PostgreSQL transaction logging)
+* [x] Handle failed payments (Log and mark purchase `failed` on `payment.failed` event)
+* [x] Handle cancelled payments (Redirects to `/pricing?status=cancelled`)
+* [x] Handle refunds (Processes `payment.refunded` events and logs negative ledger adjustment)
+* [x] Test webhook replay (Timestamp tolerance window validation prevents replay attacks)
+* [x] Test fake payment requests (Rejection of tampered signatures or unverified payloads)
+* [ ] Switch to live mode only after testing (Final pre-launch switch)
 
 **Never grant credits simply because the frontend says payment succeeded.**
 
