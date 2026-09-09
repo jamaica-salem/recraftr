@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import AppHeader from "@/components/app/AppHeader";
 import { Button } from "@/components/ui/button";
-import { Sparkles, CheckCircle2, Zap, ShieldCheck, ArrowRight, Loader2, Globe, Sliders, Info } from "lucide-react";
+import { Sparkles, CheckCircle2, Zap, ShieldCheck, ArrowRight, Loader2, Globe } from "lucide-react";
 import axios from "axios";
 import { API, useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import CustomTopupCard from "@/components/app/CustomTopupCard";
 
 export default function Pricing() {
@@ -18,15 +18,9 @@ export default function Pricing() {
       return "PHP";
     }
   });
-  const [activeTab, setActiveTab] = useState(() => {
-    const query = new URLSearchParams(window.location.search);
-    return query.get("tab") === "topup" ? "topup" : "plans";
-  });
-  const [packages, setPackages] = useState([]);
   const [topups, setTopups] = useState([]);
   const [loadingPkg, setLoadingPkg] = useState(null);
   const [fetching, setFetching] = useState(true);
-  const nav = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
@@ -34,29 +28,25 @@ export default function Pricing() {
     if (query.get("status") === "cancelled") {
       toast.info("Checkout was cancelled. No charges were made.");
     }
-    if (query.get("tab") === "topup") {
-      setActiveTab("topup");
-    }
   }, [location]);
 
   useEffect(() => {
-    async function loadPackages() {
+    async function loadTopups() {
       setFetching(true);
       try {
-        const res = await axios.get(`${API}/payments/packages?currency=${currency}`);
-        if (res.data?.packages) {
-          setPackages(res.data.packages);
-        }
+        const res = await axios.get(`${API}/payments/packages?category=topup&currency=${currency}`);
         if (res.data?.topups) {
           setTopups(res.data.topups);
+        } else if (res.data?.packages) {
+          setTopups(res.data.packages);
         }
       } catch (err) {
-        toast.error("Could not load credit packages. Please try again.");
+        toast.error("Could not load credit refill options. Please try again.");
       } finally {
         setFetching(false);
       }
     }
-    loadPackages();
+    loadTopups();
   }, [currency]);
 
   const handleCheckout = async (packageId, customCredits = null) => {
@@ -87,7 +77,6 @@ export default function Pricing() {
 
   const currSymbol = currency === "USD" ? "$" : "₱";
   const currLabel = currency === "USD" ? "USD" : "PHP";
-  const currentItems = activeTab === "topup" ? topups : packages;
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#F5F5F5]">
@@ -98,14 +87,13 @@ export default function Pricing() {
         <div className="text-center max-w-2xl mx-auto mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-medium mb-4">
             <Zap className="w-3.5 h-3.5" />
-            Simple, Pay-As-You-Go AI Credits
+            Pay-As-You-Go AI Credit Refills
           </div>
           <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white mb-3">
-            Boost Your Applications with AI Credits
+            Top Up Your AI Credits
           </h1>
           <p className="text-neutral-400 text-sm sm:text-base leading-relaxed">
-            One-time purchases. No recurring subscriptions. Use your credits anytime for iterative ATS resume rewrites,
-            cover letter generation, and targeted bullet tailoring.
+            One-time credit refills with zero recurring subscriptions. Choose a quick refill pack or specify exact applications needed with our custom calculator.
           </p>
           {user && (
             <div className="mt-4 inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-[#171717] border border-[#262626] text-xs text-neutral-300">
@@ -115,7 +103,7 @@ export default function Pricing() {
         </div>
 
         {/* Currency Switcher */}
-        <div className="flex flex-col items-center justify-center mb-8">
+        <div className="flex flex-col items-center justify-center mb-10">
           <div className="inline-flex items-center p-1 rounded-xl bg-[#141414] border border-[#262626] shadow-lg">
             <button
               type="button"
@@ -150,48 +138,6 @@ export default function Pricing() {
           </div>
         </div>
 
-        {/* Plan Type Tabs: Full Packages vs Quick Top-Up */}
-        <div className="flex justify-center mb-10">
-          <div className="inline-flex items-center p-1 rounded-xl bg-[#121212] border border-[#262626]">
-            <button
-              type="button"
-              onClick={() => setActiveTab("plans")}
-              className={`px-5 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all ${
-                activeTab === "plans"
-                  ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
-                  : "text-neutral-400 hover:text-white"
-              }`}
-            >
-              📦 Full Application Packages (Maximum Savings)
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("topup")}
-              className={`px-5 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 ${
-                activeTab === "topup"
-                  ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
-                  : "text-neutral-400 hover:text-white"
-              }`}
-            >
-              <Zap className="w-4 h-4" />
-              <span>⚡ Quick Top-Up Refills & Custom</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Guidance notice when TopUp tab is selected */}
-        {activeTab === "topup" && (
-          <div className="max-w-3xl mx-auto mb-8 bg-gradient-to-r from-blue-950/30 via-slate-900/40 to-blue-950/30 border border-blue-500/20 rounded-xl p-4 text-xs text-neutral-300 flex items-start gap-3">
-            <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <span className="font-semibold text-white">How top-up pricing works:</span>
-              <p className="text-neutral-400">
-                Top-ups are convenience refills designed to give you exactly what you need mid-application without committing to a full bundle. For the lowest rate per application (as low as ₱3.33/app), our <button type="button" onClick={() => setActiveTab("plans")} className="text-blue-400 underline hover:text-blue-300">Full Application Packages</button> offer our steepest volume discounts!
-              </p>
-            </div>
-          </div>
-        )}
-
         {/* Pricing Cards Grid */}
         {fetching ? (
           <div className="flex justify-center items-center py-20 text-neutral-500">
@@ -199,8 +145,8 @@ export default function Pricing() {
             Loading credit options...
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 items-stretch">
-            {currentItems.map((pkg) => {
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 items-stretch mb-10">
+            {topups.map((pkg) => {
               const isPopular = pkg.popular;
               return (
                 <div
@@ -234,7 +180,7 @@ export default function Pricing() {
                       <span className="text-3xl font-bold text-white tracking-tight">
                         {currSymbol}{pkg.amount}
                       </span>
-                      <span className="text-xs text-neutral-400">{currLabel} / one-time</span>
+                      <span className="text-xs text-neutral-400">{currLabel} / refill</span>
                     </div>
                     <div className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-md">
                       <Sparkles className="w-3.5 h-3.5" />
@@ -292,7 +238,7 @@ export default function Pricing() {
                       </>
                     ) : (
                       <>
-                        <span>{activeTab === "topup" ? `Add ${pkg.credits} Credits` : "Get Started"}</span>
+                        <span>Add {pkg.credits} Credits</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -303,16 +249,14 @@ export default function Pricing() {
           </div>
         )}
 
-        {/* Custom Refill Interactive Section when in Top-Up tab */}
-        {activeTab === "topup" && (
-          <div className="mt-10">
-            <CustomTopupCard
-              currency={currency}
-              onCheckout={handleCheckout}
-              loading={loadingPkg === "custom"}
-            />
-          </div>
-        )}
+        {/* Custom Refill Interactive Section */}
+        <div className="mt-8">
+          <CustomTopupCard
+            currency={currency}
+            onCheckout={handleCheckout}
+            loading={loadingPkg === "custom"}
+          />
+        </div>
 
         {/* Security & Payment methods footer */}
         <div className="mt-16 pt-10 border-t border-[#262626] flex flex-col md:flex-row items-center justify-between gap-6 text-xs text-neutral-400">

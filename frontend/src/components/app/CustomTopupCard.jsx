@@ -209,7 +209,7 @@ export default function CustomTopupCard({
       <div className="flex items-start gap-2 text-[11px] text-neutral-400 bg-blue-950/20 border border-blue-900/30 rounded-lg p-2.5 mb-4">
         <Info className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
         <div>
-          <span>Top-ups provide on-demand flexibility. For high-volume job hunts, check out our full packages (like Job Hunter with 60 apps) for the lowest price per application.</span>
+          <span>Top-ups provide on-demand flexibility. Select a preset refill pack above or use the interactive slider to refill your exact target number of credits.</span>
         </div>
       </div>
 
